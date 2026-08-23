@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const screenshotDir = resolve("tests/visual/screenshots");
-const states = ["home", "empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete"] as const;
+const states = ["home", "empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"] as const;
 const playerBrewingStates = new Set(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-stopped", "round9"]);
 
 test.beforeAll(async () => mkdir(screenshotDir, { recursive: true }));
@@ -14,6 +14,7 @@ for (const state of states) {
     page.on("pageerror", (error) => browserErrors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error") browserErrors.push(message.text()); });
     await page.goto(`/?debugState=${state}`, { waitUntil: "domcontentloaded" });
+    expect(browserErrors).toEqual([]);
     await expect(page.locator("#root > *")).toBeVisible();
     await page.waitForTimeout(350);
     if (state === "resolution-bonus") await page.waitForTimeout(650);
@@ -40,6 +41,14 @@ for (const state of states) {
       expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
     }
     if (state === "resolution-purchase-selected") await expect(page.getByText("Garden spider 2")).toBeVisible();
+    if (state.startsWith("effect-") && state !== "effect-returned") {
+      const dialog = page.locator(".effect-choice-modal");
+      await expect(dialog).toBeVisible();
+      const box = await dialog.boundingBox();
+      const viewport = page.viewportSize();
+      expect(box !== null && viewport !== null && box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height).toBe(true);
+    }
+    if (state === "effect-returned") await expect(page.getByText("Cherry bomb 1 is back in your live bag.")).toBeVisible();
     expect(browserErrors).toEqual([]);
     const resolutionCapture = state.startsWith("resolution-") || state === "purchasing" || state === "round-summary";
     await page.screenshot({ path: resolve(screenshotDir, `${state}.png`), fullPage: !resolutionCapture });
@@ -119,6 +128,52 @@ test("compact references open without moving the game board", async ({ page }) =
   await expect(page.getByRole("dialog", { name: "Full brew log" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(initialHeight);
   await page.screenshot({ path: resolve(screenshotDir, "reference-full-log.png"), fullPage: false });
+});
+
+test("effect choice supports keyboard selection, undo, confirmation, and engine-owned return", async ({ page }) => {
+  await page.goto("/?debugState=effect-crow-skull", { waitUntil: "domcontentloaded" });
+  const dialog = page.getByRole("dialog", { name: "Crow Skull" });
+  await expect(dialog).toBeVisible();
+  const choices = dialog.getByRole("radio");
+  const confirm = dialog.locator(".effect-choice-actions .button-primary");
+  await expect(confirm).toBeDisabled();
+
+  await choices.first().focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(choices.last()).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  const selected = choices.nth(1);
+  await expect(selected).toHaveAttribute("aria-checked", "true");
+  await expect(confirm).toBeEnabled();
+  await selected.press("Space");
+  await expect(selected).toHaveAttribute("aria-checked", "false");
+  await expect(confirm).toBeDisabled();
+
+  await selected.press("Space");
+  await confirm.click();
+  await expect(confirm).toHaveText("Resolving effect...");
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("2 revealed ingredients are back in your live bag.")).toBeVisible();
+  await page.waitForTimeout(350);
+  await page.screenshot({ path: resolve(screenshotDir, "effect-return-animation-end.png"), fullPage: false });
+});
+
+test("illegal effect option is visible, explained, and disabled", async ({ page }) => {
+  await page.goto("/?debugState=effect-disabled", { waitUntil: "domcontentloaded" });
+  const unavailable = page.getByRole("radio", { name: /Unavailable ingredient/ });
+  await expect(unavailable).toBeDisabled();
+  await expect(unavailable).toContainText("engine token could not be resolved");
+});
+
+test("multi-token effect modal fits a 1280x800 desktop viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/?debugState=effect-multi-reveal", { waitUntil: "domcontentloaded" });
+  const modal = page.locator(".effect-choice-modal");
+  await expect(modal).toBeVisible();
+  const box = await modal.boundingBox();
+  expect(box !== null && box.x >= 0 && box.y >= 0 && box.x + box.width <= 1280 && box.y + box.height <= 800).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth && document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
+  await page.screenshot({ path: resolve(screenshotDir, "effect-multi-reveal-1280x800.png"), fullPage: false });
 });
 
 test("resolution presentation advances from bonus to purchasing", async ({ page }) => {

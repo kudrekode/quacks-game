@@ -1,9 +1,9 @@
 import { createGame } from "./engine.js";
 import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlacedToken, TokenValue } from "./types.js";
 
-export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary" | "resolution-bonus" | "resolution-rewards" | "resolution-purchase" | "resolution-purchase-selected" | "resolution-ruby" | "resolution-complete";
+export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary" | "resolution-bonus" | "resolution-rewards" | "resolution-purchase" | "resolution-purchase-selected" | "resolution-ruby" | "resolution-complete" | "effect-crow-skull" | "effect-mandrake" | "effect-keep-return" | "effect-multi-reveal" | "effect-disabled" | "effect-selected" | "effect-confirmation" | "effect-returned";
 
-const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete"]);
+const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"]);
 
 export function debugStateFromLocation(): DebugStateName | "home" | undefined {
   if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return undefined;
@@ -46,8 +46,8 @@ function fillPot(state: GameState, actor: "human" | "ai", recipe: Array<[Ingredi
   player.whiteTotal = recipe.reduce((sum, [color, value]) => sum + (color === "white" ? value : 0), 0);
 }
 
-function pending(actor: "human" | "ai", kind: PendingDecision["kind"], options: string[]): PendingDecision {
-  return { id: `debug-${kind.toLowerCase()}`, actor, kind, prompt: "Debug presentation fixture", options, data: {} };
+function pending(actor: "human" | "ai", kind: PendingDecision["kind"], options: string[], data:Record<string,unknown> = {}, prompt="Debug presentation fixture"): PendingDecision {
+  return { id: `debug-${kind.toLowerCase()}`, actor, kind, prompt, options, data };
 }
 
 function logEntry(state: GameState, seq: number, type: string, actor: "human" | "ai", payload: Record<string, unknown>): GameLogEntry {
@@ -143,5 +143,30 @@ export function createDebugGame(name: DebugStateName): GameState {
     state.roundState.finalCommitments = {};
   }
   if (name === "fortune") setActiveFortune(state, "F15");
+  if (["effect-crow-skull", "effect-selected"].includes(name)) {
+    const preview = [take(state,"green",1),take(state,"white",1),take(state,"blue",1)];
+    state.players.human.preview = preview;
+    const data = name === "effect-selected" ? { presentationSelectedChoice:`token:${preview[1]}` } : {};
+    state.pendingDecision = pending("human","BLUE_SELECT",["none",...preview.map(id=>`token:${id}`)],data,"Choose up to one previewed token");
+  }
+  if (name === "effect-mandrake" || name === "effect-confirmation") {
+    fillPot(state,"human",[["white",2],["yellow",1]]);
+    const previousId=state.players.human.pot[0]!.tokenId;
+    const data:Record<string,unknown>={previousId};
+    if(name==="effect-confirmation"){data.presentationSelectedChoice="remove";data.presentationConfirming=true}
+    state.pendingDecision=pending("human","YELLOW_REMOVE",["keep","remove"],data,"Return the preceding white token?");
+  }
+  if (name === "effect-keep-return") {
+    const tokenId=take(state,"white",2);state.players.human.preview=[tokenId];
+    state.pendingDecision=pending("human","WHITE_REPRIEVE",["place","return"],{tokenId,source:"draw",before:{}},"Return the first white token?");
+  }
+  if (name === "effect-multi-reveal") {
+    const preview=[take(state,"green",2),take(state,"blue",1),take(state,"white",1),take(state,"red",1)];state.players.human.preview=preview;
+    state.pendingDecision=pending("human","STRONG_SELECT",["none",...preview.map(id=>`token:${id}`)],{ids:preview},"Choose up to one final ingredient");
+  }
+  if (name === "effect-disabled") {
+    const tokenId=take(state,"green",1);state.players.human.preview=[tokenId];
+    state.pendingDecision=pending("human","BLUE_SELECT",[`token:${tokenId}`,"token:missing-debug-token"],{},"Choose a legal revealed ingredient");
+  }
   return state;
 }
