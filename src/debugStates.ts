@@ -1,9 +1,9 @@
 import { createGame } from "./engine.js";
 import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlacedToken, TokenValue } from "./types.js";
 
-export type DebugStateName = "brewing" | "ingredients" | "high-risk" | "ai-brewing" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary";
+export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary";
 
-const validStates = new Set<DebugStateName>(["brewing", "ingredients", "high-risk", "ai-brewing", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary"]);
+const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary"]);
 
 export function debugStateFromLocation(): DebugStateName | "home" | undefined {
   if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return undefined;
@@ -56,7 +56,7 @@ function logEntry(state: GameState, seq: number, type: string, actor: "human" | 
 
 export function createDebugGame(name: DebugStateName): GameState {
   const state = createGame({ seed: `visual-${name}`, fortuneDeck: Array.from({ length: 24 }, (_, index) => `F${String(index + 1).padStart(2, "0")}` as `F${number}`) });
-  state.round = name === "round9" ? 9 : 5;
+  state.round = name === "round9" ? 9 : name === "dense-pot" ? 8 : 5;
   state.phase = name === "purchasing" ? "EVAL_E" : "BREWING";
   state.activeFortune = "F11";
   state.players.human.score = 32;
@@ -79,13 +79,16 @@ export function createDebugGame(name: DebugStateName): GameState {
     logEntry(state, 4, "TOKEN_PLACED", "human", { color: "orange", value: 1, trackIndex: 5 }),
   ];
 
-  if (name === "brewing") fillPot(state, "human", [["green", 1], ["blue", 2]]);
+  if (name === "brewing") fillPot(state, "human", [["green", 1], ["blue", 2], ["orange", 1]]);
+  if (name === "empty-pot") fillPot(state, "human", []);
+  if (name === "mid-track") fillPot(state, "human", [["green", 2], ["blue", 2], ["orange", 1], ["white", 1], ["red", 2], ["yellow", 1], ["purple", 1], ["green", 4], ["white", 2], ["orange", 1]]);
   if (name === "high-risk") {
     fillPot(state, "human", [["green", 1], ["white", 3], ["blue", 1], ["white", 2], ["orange", 1], ["white", 1]]);
     state.players.human.whiteTotal = 6;
     const dangerBag = [take(state, "white", 3), take(state, "white", 2), take(state, "orange", 1), take(state, "green", 1)];
     state.players.human.bag.push(...dangerBag);
   }
+  if (name === "dense-pot") fillPot(state, "human", [["orange", 1], ["green", 1], ["blue", 1], ["red", 1], ["yellow", 1], ["purple", 1], ["black", 1], ["white", 1], ["green", 2], ["blue", 2], ["red", 2], ["yellow", 2], ["white", 2], ["green", 4], ["blue", 4], ["red", 4], ["yellow", 4], ["green", 4]]);
   if (name === "ai-brewing") state.pendingDecision = pending("ai", "BREW_ACTION", ["DRAW", "STOP"]);
   if (name === "purchasing") {
     state.players.human.roundCoins = 18;

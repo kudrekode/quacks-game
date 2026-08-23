@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const screenshotDir = resolve("tests/visual/screenshots");
-const states = ["home", "brewing", "ingredients", "high-risk", "ai-brewing", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary"] as const;
+const states = ["home", "empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary"] as const;
 
 test.beforeAll(async () => mkdir(screenshotDir, { recursive: true }));
 
