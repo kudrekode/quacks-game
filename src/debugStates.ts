@@ -1,9 +1,9 @@
 import { createGame } from "./engine.js";
 import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlacedToken, TokenValue } from "./types.js";
 
-export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary";
+export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary" | "resolution-bonus" | "resolution-rewards" | "resolution-purchase" | "resolution-purchase-selected" | "resolution-ruby" | "resolution-complete";
 
-const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary"]);
+const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete"]);
 
 export function debugStateFromLocation(): DebugStateName | "home" | undefined {
   if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return undefined;
@@ -54,11 +54,19 @@ function logEntry(state: GameState, seq: number, type: string, actor: "human" | 
   return { seq, eventId: `debug-e${seq + 1}`, round: state.round, phase: state.phase, type, actor, publicPayload: payload };
 }
 
+function setActiveFortune(state: GameState, card: NonNullable<GameState["activeFortune"]>): void {
+  if (state.activeFortune === card) return;
+  const targetIndex = state.fortuneDeck.indexOf(card);
+  if (targetIndex >= 0) state.fortuneDeck.splice(targetIndex, 1);
+  if (state.activeFortune) state.fortuneDeck.push(state.activeFortune);
+  state.activeFortune = card;
+}
+
 export function createDebugGame(name: DebugStateName): GameState {
   const state = createGame({ seed: `visual-${name}`, fortuneDeck: Array.from({ length: 24 }, (_, index) => `F${String(index + 1).padStart(2, "0")}` as `F${number}`) });
   state.round = name === "round9" ? 9 : name === "dense-pot" ? 8 : 5;
   state.phase = name === "purchasing" ? "EVAL_E" : "BREWING";
-  state.activeFortune = "F11";
+  setActiveFortune(state, "F11");
   state.players.human.score = 32;
   state.players.ai.score = 24;
   state.players.human.rubies = 3;
@@ -99,10 +107,41 @@ export function createDebugGame(name: DebugStateName): GameState {
     state.players.human.roundCoins = 18;
     state.pendingDecision = pending("human", "PURCHASE", ["none", "buy:green:1", "buy:blue:1", "buy:orange:1", "buy:red:1", "buy:green:1+blue:1", "buy:orange:1+red:1"]);
   }
+  const resolutionFixture = name.startsWith("resolution-");
+  if (resolutionFixture) {
+    state.players.human.stopped = true;
+    state.players.ai.stopped = true;
+    state.players.human.scoringIndex = 12;
+    state.players.ai.scoringIndex = 9;
+    state.players.human.roundBaseVP = 3;
+    state.players.ai.roundBaseVP = 2;
+    state.players.human.roundCoins = 17;
+    state.players.ai.roundCoins = 13;
+    state.roundState.bonusDieWinners = ["human"];
+    state.log.push(logEntry(state, 5, "DIE_ROLLED", "human", { face: "ruby", rngBefore: state.rng.drawsConsumed, rngAfter: state.rng.drawsConsumed + 1 }));
+  }
+  if (name === "resolution-bonus") {
+    state.phase = "EVAL_E";
+    state.pendingDecision = pending("human", "PURCHASE", ["none", "buy:green:1", "buy:green:2", "buy:blue:1", "buy:blue:2", "buy:orange:1", "buy:red:1", "buy:green:2+blue:1"]);
+  }
+  if (name === "resolution-rewards") {
+    state.phase = "EVAL_E";
+    state.pendingDecision = pending("human", "PURCHASE", ["none", "buy:green:1", "buy:green:2", "buy:blue:1", "buy:blue:2", "buy:orange:1", "buy:red:1", "buy:green:2+blue:1"]);
+  }
+  if (name === "resolution-purchase" || name === "resolution-purchase-selected") {
+    state.phase = "EVAL_E";
+    state.pendingDecision = pending("human", "PURCHASE", ["none", "buy:green:1", "buy:green:2", "buy:blue:1", "buy:blue:2", "buy:orange:1", "buy:red:1", "buy:green:2+blue:1", "buy:orange:1+red:1"]);
+  }
+  if (name === "resolution-ruby") {
+    state.phase = "EVAL_F";
+    state.players.human.flaskFull = false;
+    state.pendingDecision = pending("human", "RUBY_ACTION", ["done", "droplet", "flask"]);
+  }
+  if (name === "resolution-complete") state.pendingDecision = pending("human", "BREW_ACTION", ["DRAW", "STOP"]);
   if (name === "round9") {
     state.pendingDecision = pending("human", "ROUND9_COMMIT", ["DRAW", "STOP"]);
     state.roundState.finalCommitments = {};
   }
-  if (name === "fortune") state.activeFortune = "F15";
+  if (name === "fortune") setActiveFortune(state, "F15");
   return state;
 }

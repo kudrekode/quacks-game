@@ -8,9 +8,11 @@ import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlayerS
 import { COLOR_ORDER, DECISION_CONTEXT, FORTUNE_COPY, INGREDIENT_META } from "./uiData.js";
 import { BOARD_ASSET, ingredientAsset } from "./uiAssets.js";
 import { HumanPotBoard } from "./HumanPotBoard.js";
+import { isRoundResolutionActive, RoundResolution, type RoundStartSnapshot, type RoundSummaryData } from "./RoundResolution.js";
 
 const SAVE_KEY = "cauldron-and-chance/save-v1";
 const SETTINGS_KEY = "cauldron-and-chance/settings-v2";
+const RESOLUTION_KEY = "cauldron-and-chance/resolution-v1";
 const DEBUG_STATE = debugStateFromLocation();
 
 interface Settings {
@@ -22,22 +24,49 @@ interface Settings {
   showAIDetails: boolean;
 }
 
-interface RoundSummaryData {
-  round: number;
-  humanScore: number;
-  aiScore: number;
-  humanRubies: number;
-  aiRubies: number;
-  nextHumanRats: number;
-  nextAiRats: number;
-}
-
 interface ToastData { id: number; tone: "good" | "warning" | "info"; title: string; body: string }
+
+interface ResolutionPersistence {
+  gameId: string;
+  baseline: RoundStartSnapshot;
+  summary?: RoundSummaryData;
+  bonusAcknowledged: boolean;
+  rewardsAcknowledged: boolean;
+  selectedPurchase: string[];
+}
 
 const DEFAULT_SETTINGS: Settings = {
   reducedMotion: false, highContrast: false, showRisk: true,
   fastAI: false, showBag: true, showAIDetails: true,
 };
+
+function currentRoundStart(game: GameState): RoundStartSnapshot {
+  return { round: game.round, humanScore: game.players.human.score, aiScore: game.players.ai.score, humanRubies: game.players.human.rubies, aiRubies: game.players.ai.rubies };
+}
+
+function defaultResolutionProgress(game: GameState): ResolutionPersistence {
+  const resolutionFixture = DEBUG_STATE?.startsWith("resolution-") || DEBUG_STATE === "purchasing" || DEBUG_STATE === "round-summary";
+  const baseline = resolutionFixture ? { round: 5, humanScore: 29, aiScore: 22, humanRubies: 2, aiRubies: 2 } : currentRoundStart(game);
+  const completeFixture = DEBUG_STATE === "resolution-complete" || DEBUG_STATE === "round-summary";
+  return {
+    gameId: game.gameId,
+    baseline,
+    summary: completeFixture ? { round: 5, humanScore: 3, aiScore: 2, humanRubies: 1, aiRubies: 0, nextHumanRats: 0, nextAiRats: 1 } : undefined,
+    bonusAcknowledged: DEBUG_STATE ? DEBUG_STATE !== "resolution-bonus" : false,
+    rewardsAcknowledged: ["resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "purchasing", "round-summary"].includes(DEBUG_STATE ?? ""),
+    selectedPurchase: DEBUG_STATE === "resolution-purchase-selected" ? ["green:2", "blue:1"] : [],
+  };
+}
+
+function loadResolutionProgress(game: GameState): ResolutionPersistence {
+  const fallback = defaultResolutionProgress(game);
+  if (DEBUG_STATE) return fallback;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RESOLUTION_KEY) ?? "null") as ResolutionPersistence | null;
+    if (parsed?.gameId === game.gameId && parsed.baseline && Array.isArray(parsed.selectedPurchase)) return parsed;
+  } catch { localStorage.removeItem(RESOLUTION_KEY); }
+  return fallback;
+}
 
 function freshSeed(): string {
   const values = new Uint32Array(2);
@@ -198,27 +227,24 @@ function Modal({title,eyebrow,children,onClose,wide=false}:{title:string;eyebrow
 
 function HelpModal({onClose}:{onClose:()=>void}) {return <Modal title="How to brew" eyebrow="Apothecary handbook" onClose={onClose} wide><div className="help-grid"><article><GameIcon name="bag"/><h3>Draw from the live bag</h3><p>Each draw randomly samples the ingredients currently in your bag. The token advances around your pot by its value.</p></article><article><GameIcon name="explosion"/><h3>Watch the white total</h3><p>White ingredients add explosion load. Exceed your threshold and you must give up either victory points or shopping coins.</p></article><article><GameIcon name="stop"/><h3>Stop to bank the space</h3><p>Stop while the reward is worthwhile. Your next open space determines coins, points, and sometimes a ruby.</p></article><article><GameIcon name="coin"/><h3>Improve your bag</h3><p>Spend coins on up to two ingredients of different colours. Their rule text is always visible in the market below.</p></article><article><GameIcon name="flask"/><h3>Use the flask carefully</h3><p>After drawing a white ingredient, the flask can return it to the live bag. A returned token can be drawn again immediately.</p></article><article><GameIcon name="rat"/><h3>Rat tails help the chaser</h3><p>The brewer behind on score begins farther around the pot. Round nine hides both final draw-or-stop commitments.</p></article></div></Modal>}
 
-function RoundSummary({summary,onContinue}:{summary:RoundSummaryData;onContinue:()=>void}) {return <Modal title={`Round ${summary.round} complete`} eyebrow="Night market closes" onClose={onContinue}><div className="round-summary-grid"><div><span>You</span><b>+{summary.humanScore} VP</b><small>{summary.humanRubies>=0?"+":""}{summary.humanRubies} rubies</small></div><div><span>Rival</span><b>+{summary.aiScore} VP</b><small>{summary.aiRubies>=0?"+":""}{summary.aiRubies} rubies</small></div></div><p className="summary-rats">Next round rat tails: <b>You +{summary.nextHumanRats}</b> / <b>Rival +{summary.nextAiRats}</b></p><button className="button-primary summary-continue" onClick={onContinue}>Begin round {summary.round+1}</button></Modal>}
-
 function FeedbackToast({toast,onClose}:{toast:ToastData;onClose:()=>void}) {return <div className={`feedback-toast toast-${toast.tone}`} role="status"><GameIcon name={toast.tone==="warning"?"explosion":toast.tone==="good"?"spark":"round"}/><div><b>{toast.title}</b><span>{toast.body}</span></div><button onClick={onClose} aria-label="Dismiss notification">x</button></div>}
 
 function InspectCard({token,onClose}:{token:Token;onClose:()=>void}) {const price=PRICE_BOOK[token.color]?.[token.value];return <section className="inspect-popover" role="dialog" aria-label="Ingredient tooltip"><button className="close-button" onClick={onClose} aria-label="Close ingredient details">x</button><div className="inspect-token"><IngredientChip token={token}/></div><span className="eyebrow">Ingredient inspection</span><h2>{INGREDIENT_META[token.color].name} {token.value}</h2><p><b>Movement</b> {token.value} space{token.value===1?"":"s"} before modifiers.</p><p><b>Effect</b> {INGREDIENT_META[token.color].note}.</p><p><b>Market</b> {price===undefined?"Not purchasable.":`${price} coins.`}</p></section>}
 
-function BonusDieEvent({entry,onClose}:{entry:GameLogEntry;onClose:()=>void}) {const face=String(entry.publicPayload.face??"");const rewards:Record<string,string>={vp1:"+1 victory point",vp2:"+2 victory points",ruby:"+1 ruby",droplet:"Droplet advances",orange:"+1 pumpkin"};return <div className="event-toast" role="status"><div className="die-face">{face==="ruby"?"R":face==="droplet"?"D":face.startsWith("vp")?face.slice(2):"P"}</div><div><span className="eyebrow">Bonus die</span><h2>{entry.actor==="human"?"You brewed the strongest eligible potion.":"The rival brewed the strongest eligible potion."}</h2><p>Reward: <b>{rewards[face]??titleCase(face)}</b></p></div><button onClick={onClose} aria-label="Dismiss bonus die result">x</button></div>}
-
 function HomeScreen({hasSave,seed,setSeed,settings,setSettings,onNew,onContinue,onImport,onHelp,fileRef}:{hasSave:boolean;seed:string;setSeed:(v:string)=>void;settings:Settings;setSettings:(v:Settings)=>void;onNew:()=>void;onContinue:()=>void;onImport:(file:File)=>void;onHelp:()=>void;fileRef:React.RefObject<HTMLInputElement|null>}) {return <main className="home-screen"><section className="home-hero"><img className="home-brand-art" src={BOARD_ASSET.brand} alt=""/><span className="eyebrow">A deterministic apothecary game</span><h1>Cauldron <i>&</i> Chance</h1><p>Brew recklessly. Read the bag. Try not to explode.</p><div className="home-actions"><button className="button-primary" onClick={onNew}>New game</button><button className="button-secondary" onClick={onContinue} disabled={!hasSave}>Continue game</button></div></section><section className="home-settings"><div><span className="eyebrow">Game settings</span><h2>Prepare your workbench</h2></div><dl><div><dt>Opponent</dt><dd><GameIcon name="ai"/>Strong AI</dd></div><div><dt>Ingredient set</dt><dd><GameIcon name="spark"/>Set 1</dd></div></dl><label className="seed-field"><span>Game seed</span><input value={seed} onChange={e=>setSeed(e.target.value)}/></label><SettingsPanel settings={settings} onChange={setSettings}/><div className="home-utility"><button onClick={()=>fileRef.current?.click()}>Import replay</button><button onClick={onHelp}>How to play</button></div><input ref={fileRef} className="visually-hidden" type="file" accept="application/json" onChange={e=>{const file=e.target.files?.[0];if(file)onImport(file)}}/></section></main>}
 
 export function App() {
-  const [game,setGame]=useState<GameState>(loadGame);const [choices,setChoices]=useState<string[]>([]);const [settings,setSettings]=useState<Settings>(loadSettings);const [screen,setScreen]=useState<"home"|"game">(DEBUG_STATE&&DEBUG_STATE!=="home"?"game":"home");const [seedInput,setSeedInput]=useState(game.config.seed);const [aiStatus,setAiStatus]=useState(DEBUG_STATE==="ai-brewing"?"Evaluating the live bag...":"Ready");const [aiReport,setAiReport]=useState<(AIDecisionReport&{latencyMs:number})>();const [notice,setNotice]=useState("");const [fortuneOpen,setFortuneOpen]=useState(DEBUG_STATE==="fortune");const [bagOpen,setBagOpen]=useState(DEBUG_STATE==="ingredients");const [helpOpen,setHelpOpen]=useState(false);const [settingsOpen,setSettingsOpen]=useState(false);const [roundSummary,setRoundSummary]=useState<RoundSummaryData|undefined>(DEBUG_STATE==="round-summary"?{round:5,humanScore:4,aiScore:3,humanRubies:1,aiRubies:0,nextHumanRats:0,nextAiRats:1}:undefined);const [toast,setToast]=useState<ToastData|undefined>(DEBUG_STATE==="toast"?{id:999,tone:"good",title:"Potion brewed",body:"You gained 2 victory points and a ruby."}:undefined);const [inspected,setInspected]=useState<Token|undefined>(DEBUG_STATE==="tooltip"?game.tokens[game.players.human.pot[0]?.tokenId??""]:undefined);const [dismissedDie,setDismissedDie]=useState(-1);const fileRef=useRef<HTMLInputElement>(null);const workerRef=useRef<Worker|null>(null);const gameRef=useRef(game);const roundStartRef=useRef({round:game.round,humanScore:game.players.human.score,aiScore:game.players.ai.score,humanRubies:game.players.human.rubies,aiRubies:game.players.ai.rubies});const lastToastSeq=useRef(game.log.at(-1)?.seq??-1);gameRef.current=game;
+  const [game,setGame]=useState<GameState>(loadGame);const initialResolution=useMemo(()=>loadResolutionProgress(game),[]);const [choices,setChoices]=useState<string[]>([]);const [settings,setSettings]=useState<Settings>(loadSettings);const [screen,setScreen]=useState<"home"|"game">(DEBUG_STATE&&DEBUG_STATE!=="home"?"game":"home");const [seedInput,setSeedInput]=useState(game.config.seed);const [aiStatus,setAiStatus]=useState(DEBUG_STATE==="ai-brewing"?"Evaluating the live bag...":"Ready");const [aiReport,setAiReport]=useState<(AIDecisionReport&{latencyMs:number})>();const [notice,setNotice]=useState("");const [fortuneOpen,setFortuneOpen]=useState(DEBUG_STATE==="fortune");const [bagOpen,setBagOpen]=useState(DEBUG_STATE==="ingredients");const [helpOpen,setHelpOpen]=useState(false);const [settingsOpen,setSettingsOpen]=useState(false);const [roundSummary,setRoundSummary]=useState<RoundSummaryData|undefined>(initialResolution.summary);const [bonusAcknowledged,setBonusAcknowledged]=useState(initialResolution.bonusAcknowledged);const [rewardsAcknowledged,setRewardsAcknowledged]=useState(initialResolution.rewardsAcknowledged);const [selectedPurchase,setSelectedPurchase]=useState<string[]>(initialResolution.selectedPurchase);const [toast,setToast]=useState<ToastData|undefined>(DEBUG_STATE==="toast"?{id:999,tone:"good",title:"Potion brewed",body:"You gained 2 victory points and a ruby."}:undefined);const [inspected,setInspected]=useState<Token|undefined>(DEBUG_STATE==="tooltip"?game.tokens[game.players.human.pot[0]?.tokenId??""]:undefined);const fileRef=useRef<HTMLInputElement>(null);const workerRef=useRef<Worker|null>(null);const gameRef=useRef(game);const roundStartRef=useRef<RoundStartSnapshot>(initialResolution.baseline);const lastToastSeq=useRef(game.log.at(-1)?.seq??-1);gameRef.current=game;
 
   const resolveChoice=useCallback((choice:string)=>setGame(current=>{const pending=current.pendingDecision;if(!pending||!pending.options.includes(choice))return current;setChoices(history=>[...history,choice]);const next=dispatch(current,{type:"RESOLVE_DECISION",decisionId:pending.id,choice});if(next.round>current.round){const start=roundStartRef.current;setRoundSummary({round:current.round,humanScore:next.players.human.score-start.humanScore,aiScore:next.players.ai.score-start.aiScore,humanRubies:next.players.human.rubies-start.humanRubies,aiRubies:next.players.ai.rubies-start.aiRubies,nextHumanRats:next.roundState.ratTails.human,nextAiRats:next.roundState.ratTails.ai});roundStartRef.current={round:next.round,humanScore:next.players.human.score,aiScore:next.players.ai.score,humanRubies:next.players.human.rubies,aiRubies:next.players.ai.rubies}}return next}),[]);
   useEffect(()=>{const worker=new Worker(new URL("./ai.worker.ts",import.meta.url),{type:"module"});workerRef.current=worker;worker.onmessage=(event:MessageEvent<{decisionId:string;report?:AIDecisionReport;latencyMs?:number;error?:string}>)=>{const current=gameRef.current;if(current.pendingDecision?.id!==event.data.decisionId||current.pendingDecision.actor!=="ai")return;if(event.data.error||!event.data.report){setAiStatus("AI needs attention");setNotice(event.data.error??"The AI returned no action.");return}setAiReport({...event.data.report,latencyMs:event.data.latencyMs??0});setAiStatus(event.data.report.summary);window.setTimeout(()=>resolveChoice(event.data.report!.choice),settings.fastAI||settings.reducedMotion?0:420)};return()=>worker.terminate()},[resolveChoice,settings.fastAI,settings.reducedMotion]);
   useEffect(()=>{const pending=game.pendingDecision;if(DEBUG_STATE||screen!=="game"||roundSummary||pending?.actor!=="ai"||!workerRef.current)return;setAiStatus("Weighing risk...");workerRef.current.postMessage({observation:observe(game,"ai"),pending,seed:`${game.config.seed}/ai/ai`})},[screen,roundSummary,game.revision,game.pendingDecision?.id,game.config.seed]);
-  useEffect(()=>localStorage.setItem(SAVE_KEY,JSON.stringify({version:1,state:serialize(game),choices})),[game,choices]);useEffect(()=>localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)),[settings]);
+  useEffect(()=>localStorage.setItem(SAVE_KEY,JSON.stringify({version:1,state:serialize(game),choices})),[game,choices]);useEffect(()=>localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)),[settings]);useEffect(()=>localStorage.setItem(RESOLUTION_KEY,JSON.stringify({gameId:game.gameId,baseline:roundStartRef.current,summary:roundSummary,bonusAcknowledged,rewardsAcknowledged,selectedPurchase} satisfies ResolutionPersistence)),[game.gameId,game.revision,roundSummary,bonusAcknowledged,rewardsAcknowledged,selectedPurchase]);
   useEffect(()=>{const entry=game.log.at(-1);if(!entry||entry.seq<=lastToastSeq.current)return;lastToastSeq.current=entry.seq;const actor=entry.actor==="human"?"You":"The rival";let next:ToastData|undefined;if(entry.type==="POT_EXPLODED")next={id:entry.seq,tone:"warning",title:"The cauldron erupted",body:`${actor} crossed the white-token threshold.`};if(entry.type==="WHITE_REPRIEVED")next={id:entry.seq,tone:"good",title:"A narrow reprieve",body:"The white ingredient returned to the live bag."};if(entry.type==="FLASK_USED")next={id:entry.seq,tone:"info",title:"Flask used",body:`${actor} returned the last white ingredient.`};if(entry.type==="TOKEN_GAINED")next={id:entry.seq,tone:"good",title:"Bag improved",body:`${actor} gained a new ingredient.`};if(next){setToast(next);const timer=window.setTimeout(()=>setToast(current=>current?.id===next.id?undefined:current),3300);return()=>window.clearTimeout(timer)}},[game.log]);
 
-  const observation=useMemo(()=>observe(game,"human"),[game]);const risk=useMemo(()=>exactExplosionProbability(observation,"human"),[observation]);const dieEvent=[...game.log].reverse().find(entry=>entry.type==="DIE_ROLLED"&&entry.seq>dismissedDie);
-  const establishRoundStart=(next:GameState)=>{roundStartRef.current={round:next.round,humanScore:next.players.human.score,aiScore:next.players.ai.score,humanRubies:next.players.human.rubies,aiRubies:next.players.ai.rubies};lastToastSeq.current=next.log.at(-1)?.seq??-1;setRoundSummary(undefined)};
+  const observation=useMemo(()=>observe(game,"human"),[game]);const risk=useMemo(()=>exactExplosionProbability(observation,"human"),[observation]);const resolutionActive=isRoundResolutionActive(game,roundSummary);
+  const resetResolutionPresentation=()=>{setRoundSummary(undefined);setBonusAcknowledged(false);setRewardsAcknowledged(false);setSelectedPurchase([])};
+  const establishRoundStart=(next:GameState)=>{roundStartRef.current=currentRoundStart(next);lastToastSeq.current=next.log.at(-1)?.seq??-1;resetResolutionPresentation()};
   const newGame=()=>{const seed=seedInput.trim()||freshSeed();const next=createGame({seed});establishRoundStart(next);setGame(next);setChoices([]);setNotice("");setSeedInput(seed);setScreen("game")};
   const exportReplay=()=>{const data=JSON.stringify({version:1,seed:game.config.seed,choices,state:serialize(game)},null,2);const link=document.createElement("a");link.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));link.download=`cauldron-${game.config.seed}.json`;link.click();URL.revokeObjectURL(link.href)};
   const importReplay=async(file:File)=>{try{const data=JSON.parse(await file.text()) as{state?:string;choices?:string[]};if(!data.state)throw new Error("This file has no saved game state.");const loaded=deserialize(data.state);establishRoundStart(loaded);setGame(loaded);setChoices(data.choices??[]);setSeedInput(loaded.config.seed);setScreen("game");setNotice("Replay loaded.")}catch(error){setNotice(error instanceof Error?error.message:"Could not load this replay.")}};
@@ -237,5 +263,5 @@ export function App() {
       </>}
       <div className="lower-dashboard"><Market game={game} onChoose={resolveChoice}/><GameLog game={game}/></div>
       {game.phase!=="GAME_OVER"&&<ControlShelf game={game} bagOpen={bagOpen} bagEnabled={settings.showBag} onBag={()=>setBagOpen(value=>!value)}/>} {/* persistent resources */}
-    </main>{helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)}/>} {settingsOpen&&<Modal title="Game settings" eyebrow="Display and pace" onClose={()=>setSettingsOpen(false)}><SettingsPanel settings={settings} onChange={setSettings}/></Modal>} {roundSummary&&<RoundSummary summary={roundSummary} onContinue={()=>setRoundSummary(undefined)}/>} {inspected&&<InspectCard token={inspected} onClose={()=>setInspected(undefined)}/>} {toast&&<FeedbackToast toast={toast} onClose={()=>setToast(undefined)}/>} {dieEvent&&<BonusDieEvent entry={dieEvent} onClose={()=>setDismissedDie(dieEvent.seq)}/>}<footer><span>Deterministic live-bag engine / Monte Carlo AI</span><span>Seed {game.config.seed} / revision {game.revision}</span></footer></div>;
+    </main>{helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)}/>} {settingsOpen&&<Modal title="Game settings" eyebrow="Display and pace" onClose={()=>setSettingsOpen(false)}><SettingsPanel settings={settings} onChange={setSettings}/></Modal>} {inspected&&<InspectCard token={inspected} onClose={()=>setInspected(undefined)}/>} {toast&&<FeedbackToast toast={toast} onClose={()=>setToast(undefined)}/>} {resolutionActive&&<RoundResolution game={game} baseline={roundStartRef.current} summary={roundSummary} bonusAcknowledged={bonusAcknowledged} rewardsAcknowledged={rewardsAcknowledged} selectedPurchase={selectedPurchase} reducedMotion={settings.reducedMotion} onBonusAcknowledged={()=>setBonusAcknowledged(true)} onRewardsAcknowledged={()=>setRewardsAcknowledged(true)} onSelectedPurchase={setSelectedPurchase} onChoose={resolveChoice} onComplete={resetResolutionPresentation}/>}<footer><span>Deterministic live-bag engine / Monte Carlo AI</span><span>Seed {game.config.seed} / revision {game.revision}</span></footer></div>;
 }
