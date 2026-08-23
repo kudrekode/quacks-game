@@ -155,7 +155,7 @@ export interface GameConfig {
   startPlayerId: PlayerId;
   controllers: Record<PlayerId, Controller>;
   rulesVersion: "base-set1-v1";
-  aiVersion: "baseline-v1";
+  aiVersion: "baseline-v1" | "monte-carlo-v1";
   fortuneDeck?: CardId[];
 }
 

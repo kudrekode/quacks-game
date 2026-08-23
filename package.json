@@ -4,16 +4,25 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -p tsconfig.build.json && vite build",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.app.json --noEmit",
     "test": "vitest run",
     "test:run": "vitest run",
-    "simulate": "tsx src/simulate.ts"
+    "simulate": "tsx src/simulate.ts",
+    "benchmark:ai": "tsx src/benchmark.ts"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "vite": "^7.1.3",
     "vitest": "^4.1.11"
   }
 }

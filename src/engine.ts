@@ -459,7 +459,7 @@ function taskPending(state: GameState): void {
 }
 
 export function createGame(input: Partial<GameConfig> & { seed: string }): GameState {
-  const config: GameConfig={seed:input.seed,startPlayerId:input.startPlayerId??"human",controllers:input.controllers??{human:"human",ai:"ai"},rulesVersion:"base-set1-v1",aiVersion:"baseline-v1"};
+  const config: GameConfig={seed:input.seed,startPlayerId:input.startPlayerId??"human",controllers:input.controllers??{human:"human",ai:"ai"},rulesVersion:"base-set1-v1",aiVersion:input.aiVersion??"monte-carlo-v1"};
   if(input.fortuneDeck!==undefined)config.fortuneDeck=[...input.fortuneDeck];
   const registry=createTokenRegistry();const rng=createRandomState(config.seed);
   const deck=config.fortuneDeck?[...config.fortuneDeck]:shuffle(rng,ALL_CARD_IDS);
