@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 180" role="img" aria-labelledby="title desc">
+  <title id="title">White risk gauge frame</title>
+  <desc id="desc">A brass-rimmed potion risk gauge with safe, caution and danger segments.</desc>
+  <defs>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#edd893"/><stop offset=".5" stop-color="#9a6228"/><stop offset="1" stop-color="#452813"/></linearGradient>
+    <filter id="shadow"><feDropShadow dy="5" stdDeviation="4" flood-opacity=".75"/></filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <path d="M33 147a91 91 0 1 1 174 0" fill="#0b1211" stroke="#392718" stroke-width="18" stroke-linecap="round"/>
+    <path d="M37 145a87 87 0 0 1 65-84" fill="none" stroke="#62cab6" stroke-width="14" stroke-linecap="round"/>
+    <path d="M103 61a87 87 0 0 1 67 18" fill="none" stroke="#e1bd4d" stroke-width="14"/>
+    <path d="M170 79a87 87 0 0 1 33 66" fill="none" stroke="#dc6037" stroke-width="14" stroke-linecap="round"/>
+    <path d="M32 148h176" stroke="url(#brass)" stroke-width="5" stroke-linecap="round"/>
+    <g stroke="#f1dda3" stroke-width="3">
+      <path d="m45 123-10-4M58 91l-9-7M85 68l-5-10M120 58V46M155 68l5-10M182 91l9-7M195 123l10-4"/>
+    </g>
+    <circle cx="120" cy="145" r="13" fill="#281a10" stroke="url(#brass)" stroke-width="4"/>
+  </g>
+</svg>

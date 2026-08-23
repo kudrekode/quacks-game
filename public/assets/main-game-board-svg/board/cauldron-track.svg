@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
+  <title id="title">Apothecary cauldron track</title>
+  <desc id="desc">An empty oval brewing track with dark teal felt, numbered milestones and ornate brass trim.</desc>
+  <defs>
+    <radialGradient id="felt"><stop stop-color="#244b43"/><stop offset=".62" stop-color="#17352f"/><stop offset="1" stop-color="#0a1d1b"/></radialGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#97805a"/><stop offset=".5" stop-color="#5c4b33"/><stop offset="1" stop-color="#302519"/></linearGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e1bd6a"/><stop offset=".45" stop-color="#9b6427"/><stop offset="1" stop-color="#412813"/></linearGradient>
+    <radialGradient id="wood"><stop stop-color="#6d4b27"/><stop offset="1" stop-color="#1d130c"/></radialGradient>
+    <filter id="shadow"><feDropShadow dy="10" stdDeviation="9" flood-opacity=".85"/></filter>
+    <path id="topArc" d="M146 222C167 78 332 35 515 38c171 3 321 51 341 184"/>
+    <path id="bottomArc" d="M855 224c-27 118-171 167-348 167-181 0-333-49-361-167"/>
+  </defs>
+  <g filter="url(#shadow)">
+    <ellipse cx="500" cy="226" rx="446" ry="196" fill="#17110c" stroke="#3b2917" stroke-width="24"/>
+    <ellipse cx="500" cy="218" rx="430" ry="181" fill="url(#stone)" stroke="url(#brass)" stroke-width="9"/>
+    <ellipse cx="500" cy="220" rx="348" ry="108" fill="url(#felt)" stroke="#382a1b" stroke-width="8"/>
+    <use href="#topArc" fill="none" stroke="#21180f" stroke-width="63"/>
+    <use href="#topArc" fill="none" stroke="url(#stone)" stroke-width="51" stroke-dasharray="54 4"/>
+    <use href="#topArc" fill="none" stroke="#b08a50" stroke-width="2" stroke-dasharray="54 4"/>
+    <use href="#bottomArc" fill="none" stroke="#21180f" stroke-width="63"/>
+    <use href="#bottomArc" fill="none" stroke="url(#stone)" stroke-width="51" stroke-dasharray="54 4"/>
+    <use href="#bottomArc" fill="none" stroke="#b08a50" stroke-width="2" stroke-dasharray="54 4"/>
+    <g fill="#e1d0a4" font-family="Georgia,serif" font-size="21" font-weight="700" text-anchor="middle" opacity=".9">
+      <text x="146" y="200">0</text><text x="196" y="132">5</text><text x="288" y="86">10</text><text x="404" y="64">15</text><text x="520" y="62">20</text><text x="640" y="76">25</text><text x="748" y="115">30</text><text x="824" y="178">35</text>
+      <text x="823" y="291">40</text><text x="731" y="354">45</text><text x="608" y="386">50</text><text x="389" y="386">35</text><text x="267" y="351">20</text><text x="178" y="291">10</text>
+    </g>
+    <g fill="url(#wood)" stroke="url(#brass)" stroke-width="5">
+      <circle cx="88" cy="342" r="31"/><circle cx="912" cy="342" r="31"/>
+      <path d="M68 365h40l10 28H58z"/><path d="M892 365h40l10 28h-60z"/>
+    </g>
+    <circle cx="500" cy="375" r="53" fill="#24180f" stroke="url(#brass)" stroke-width="7"/>
+    <g transform="translate(500 375) rotate(45)" fill="none" stroke="#b6a27a" stroke-width="10" stroke-linecap="round">
+      <path d="M-28 0h56M-19-9l-15 9 15 9M19-9l15 9-15 9"/>
+      <path d="M0-28v56M-9-19 0-34l9 15M-9 19 0 34l9-15"/>
+    </g>
+    <g transform="translate(880 332)">
+      <circle r="47" fill="#20160f" stroke="url(#brass)" stroke-width="6"/>
+      <path d="M0-28c-18 0-29 14-28 31 1 11 7 18 15 23v12h26V26c8-5 14-12 15-23C29-14 18-28 0-28z" fill="#b9aa87" stroke="#3b3024" stroke-width="4"/>
+      <circle cx="-11" cy="0" r="7" fill="#17120e"/><circle cx="11" cy="0" r="7" fill="#17120e"/><path d="m0 9-5 9h10z" fill="#32271d"/><path d="M-12 29v11M0 28v13M12 29v11" stroke="#3b3024" stroke-width="3"/>
+    </g>
+  </g>
+</svg>

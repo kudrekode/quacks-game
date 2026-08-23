@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Alchemist AI score marker</title>
+  <defs>
+    <radialGradient id="ember"><stop stop-color="#fff1a2"/><stop offset=".35" stop-color="#ffb515"/><stop offset=".72" stop-color="#d35d09"/><stop offset="1" stop-color="#5f1609"/></radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff0a1"/><stop offset=".45" stop-color="#d79a24"/><stop offset="1" stop-color="#754111"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g filter="url(#glow)">
+    <path d="M22 56 8 67l18 5M106 56l14 11-18 5" fill="#8d4a0b" stroke="#f0b52d" stroke-width="3"/>
+    <circle cx="64" cy="62" r="42" fill="#241307" stroke="url(#gold)" stroke-width="5"/>
+    <circle cx="64" cy="62" r="34" fill="#5c2608" stroke="#ffc13c" stroke-width="2"/>
+    <path d="M67 29c9 15-3 20 9 30 7 6 11 14 8 24-3 11-12 17-22 17-15 0-25-10-25-24 0-15 11-22 18-31 1 10 7 13 9 21 9-11-2-19 3-37z" fill="url(#ember)" stroke="#ffe16b" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M64 55c5 10-5 14 2 21 4 4 3 11-2 15-9-4-13-10-10-18 2-6 8-9 10-18z" fill="#fff6bd" opacity=".9"/>
+    <path d="M45 102c8 7 30 7 38 0l-3 13-16-7-16 7z" fill="#a85309" stroke="#ffc23d" stroke-width="3"/>
+  </g>
+</svg>

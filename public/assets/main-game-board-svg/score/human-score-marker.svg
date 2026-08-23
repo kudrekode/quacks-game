@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Human score marker</title>
+  <defs>
+    <radialGradient id="blue"><stop stop-color="#5de1f0"/><stop offset=".48" stop-color="#087d9a"/><stop offset="1" stop-color="#073b4c"/></radialGradient>
+    <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e3f4e8"/><stop offset=".5" stop-color="#78a7a0"/><stop offset="1" stop-color="#365d59"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g filter="url(#glow)">
+    <path d="M22 56 8 67l18 5M106 56l14 11-18 5" fill="#196f80" stroke="#69dceb" stroke-width="3"/>
+    <circle cx="64" cy="62" r="42" fill="#071f28" stroke="url(#silver)" stroke-width="5"/>
+    <circle cx="64" cy="62" r="34" fill="url(#blue)" stroke="#8eeaf1" stroke-width="2"/>
+    <path d="M49 40h30M53 41v17L40 76c-5 8 1 14 10 14h28c9 0 15-6 10-14L75 58V41" fill="#b8eef0" fill-opacity=".3" stroke="#d7ffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M45 74c8-5 15 4 23-1 8-4 13 3 17 0l5 9c2 4-2 8-8 8H46c-6 0-10-4-8-8z" fill="#0a769a" stroke="#71e9f4" stroke-width="2"/>
+    <circle cx="59" cy="76" r="3" fill="#d4ffff"/><circle cx="73" cy="82" r="4" fill="#62d8e8"/>
+    <path d="M45 102c8 7 30 7 38 0l-3 13-16-7-16 7z" fill="#0b657f" stroke="#79e3ed" stroke-width="3"/>
+  </g>
+</svg>

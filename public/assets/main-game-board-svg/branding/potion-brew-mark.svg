@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-labelledby="title desc">
+  <title id="title">Potion Brew alchemy mark</title>
+  <desc id="desc">An ornate potion flask inside an alchemical triangle and circle.</desc>
+  <defs>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f5dfa0"/><stop offset=".45" stop-color="#bf8130"/><stop offset="1" stop-color="#674018"/></linearGradient>
+    <linearGradient id="potion" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#a8df57"/><stop offset="1" stop-color="#2a7f55"/></linearGradient>
+    <filter id="shadow"><feDropShadow dy="4" stdDeviation="3" flood-opacity=".75"/></filter>
+  </defs>
+  <g filter="url(#shadow)" fill="none" stroke="url(#brass)" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="90" cy="92" r="62" stroke-width="3"/>
+    <path d="M90 22 29 132h122z" stroke-width="4"/>
+    <path d="M72 31h36M77 32v42l-25 43c-7 13 2 26 18 26h40c16 0 25-13 18-26l-25-43V32" stroke-width="5"/>
+    <path d="M62 108c11-8 19 5 30-2 13-8 20 7 28-1l10 19c3 7-2 13-11 13H61c-9 0-14-6-11-13z" fill="url(#potion)" stroke-width="3"/>
+    <path d="M78 63h25M83 49h15" stroke-width="3"/>
+    <circle cx="75" cy="119" r="4" fill="#d9f599" stroke-width="1.5"/>
+    <circle cx="97" cy="122" r="6" fill="#78bc69" stroke-width="1.5"/>
+    <circle cx="107" cy="111" r="3" fill="#d9f599" stroke-width="1.5"/>
+    <path d="M31 64c-18 4-21 20-10 29M149 64c18 4 21 20 10 29M24 106c-13 8-10 24 3 28M156 106c13 8 10 24-3 28" stroke-width="3"/>
+  </g>
+</svg>
