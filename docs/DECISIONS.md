@@ -1,0 +1,24 @@
+# Rule Decisions and Ambiguities
+
+| Question | Source evidence | Decision and reasoning | Implementation consequence |
+|---|---|---|---|
+| Which ingredient set is default? | Rulebook recommends set 1 for the first game. | V1 loads set 1, orange, and two-player black. | Sets 2-4 are data-catalogued, not selectable. |
+| What is a pot “field” when printed coin values repeat? | Board graphic repeats values; die example says farther of two 23s wins. | Use unique `trackIndex`; printed coins are a property. | Placement/ties use index; purchases use coins. |
+| Exact pot rewards/rubies? | Supplied board image is structural authority but not tabulated in prose. | Transcribed to the 54-entry table and visually cross-checked; an open-source research implementation was used only as corroboration. | Single frozen board fixture with image-audit test. |
+| Rat-tail boundary data? | Main-board photo depicts tails, rules say count strictly between markers. | Boundaries are listed in `BOARD_MODEL.md`; repeat every 50 for absolute digital scores. | Pure `countRatTails(from,to)` function. |
+| Does black set 1 award on 0-0? | Book says “if you have drawn the same number of black chips.” | No: acting player must have drawn at least one. “Drawn” prevents a free bonus every round. | Equality predicate includes `ownCount > 0`. |
+| Bonus die's sixth face? | Rulebook lists five outcomes; physical die has six faces. | One-VP occupies two faces, all others one. | Weighted enum `[VP1,VP1,VP2,RUBY,DROPLET,ORANGE]`. |
+| Fortune card colors/timing? | Translation PDF visually groups first 14 in red and last 10 in black; rulebook defines immediate versus round-duration card colors. | Treat first 14 as immediate and last 10 as round/end effects, refined by their text. | Timing is explicit card data, not inferred from UI color. |
+| Card direct reward unavailable/locked? | Rules limit chips and forbid yellow/purple card gains before book reveal. | Unsatisfiable reward is lost; illegal options hidden. | Every reward validates supply/unlock. |
+| Timely Upgrade and white tokens? | Card says same color next higher; base tokens include white 1/2/3. | Permit white 1->2 and 2->3; colored ladder is 1->2->4. If any legal exchange exists, declining does not earn fallback green. | Global denomination ladders and supply exchange. |
+| Restart card rollback scope? | Card says begin the round all over; no detailed rollback supplied. | Restore brewing-entry player snapshot, including flask and chip-caused resources, while retaining pre-brew Fortune/rat state; use fresh deterministic shuffle. | Transaction snapshot and explicit rollback event. |
+| What counts as first five chips for restart? | Translation says first five chips “have landed.” | Count placement events, including a token later removed; previews not selected do not count. | `placementEventCount`, separate from current pot length. |
+| Strong Ingredient can explode? | Card permits placing one after stopping; normal placement rules and explosion effects remain active. | Yes; selected white can explode, removing die eligibility and forcing D/E choice. | Recompute final stopped/exploded state after hook. |
+| Flask and triggered effects? | Rules allow returning last chip, but do not enumerate undo. | Treat placement as atomic transaction; legal flask use reverses the token and all consequences caused solely by it. | Event transaction/undo metadata. |
+| Round 9 shopping versus conversion? | Rules retain evaluation shopping and additionally allow coin/ruby VP purchases at game end. | Buying remains legal but spends coins otherwise convertible; UI warns. Conversion uses remaining round-9 coins and rubies. | Preserve coin balance until conversion. |
+| Final tie “fill pot most”? | Rulebook uses fullness in last round. | Compare final-round scoring track index, regardless of explosion; equal index shares victory. | Preserve R9 indices through cleanup. |
+| Starting player in browser? | Physical rule uses most recent cook, not inferable digitally. | Setup choice, defaulting to human; included in replay configuration. | No RNG ambiguity. |
+| Do players start with a ruby? | The authoritative English setup enumerates all received components and starting tokens but grants no ruby. | Start at zero rubies. A secondary research implementation starting at one is not followed. | Player initialization and ruby tests use zero. |
+| “Two Codex prompts” requested but only one supplied? | `preDocs` contains only `prompt_1.md`. | Copy Prompt 1 by reference/summary and explicitly mark Prompt 2 unavailable; never invent it. | `CODEX_PROMPTS.md` records the missing input. |
+
+No remaining uncertainty blocks a complete default-set game. Items most worthy of publisher confirmation before commercial release are the restart rollback scope, Timely Upgrade white exchanges, and round-9 purchase/conversion resource ordering.
