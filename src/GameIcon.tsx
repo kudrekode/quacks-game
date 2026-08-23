@@ -1,4 +1,5 @@
 import React from "react";
+import { CORE_ASSET } from "./uiAssets.js";
 
 export type GameIconName = "vp" | "coin" | "ruby" | "rat" | "flask" | "bag" | "explosion" | "droplet" | "round" | "fortune" | "ai" | "spark" | "stop" | "settings";
 
@@ -20,5 +21,9 @@ const paths: Record<GameIconName, React.ReactNode> = {
 };
 
 export function GameIcon({ name, size = 22, label }: { name: GameIconName; size?: number; label?: string }) {
+  const asset = CORE_ASSET[name as keyof typeof CORE_ASSET];
+  if (asset) {
+    return <img className={`game-icon game-icon-image icon-${name}`} width={size} height={size} src={asset} alt={label ?? ""} aria-hidden={label ? undefined : true}/>;
+  }
   return <svg className={`game-icon icon-${name}`} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden={label ? undefined : true} aria-label={label}>{paths[name]}</svg>;
 }
