@@ -9,6 +9,12 @@ function choose(state: GameState, choice: string): GameState {
   return dispatch(state,{type:"RESOLVE_DECISION",decisionId:state.pendingDecision!.id,choice});
 }
 
+function beginBrewing(seed: string, card: CardId): GameState {
+  const state = createGame({ seed, fortuneDeck: deckWith(card) });
+  expect(state.pendingDecision?.kind).toBe("FORTUNE_REVEAL");
+  return choose(state, "continue");
+}
+
 function forceOnly(state: GameState, playerId: "human"|"ai", color: IngredientColor, value: TokenValue): void {
   const player=state.players[playerId];
   const wanted=[...player.bag,...state.supply].find((id)=>state.tokens[id]?.color===color&&state.tokens[id]?.value===value);
@@ -19,14 +25,14 @@ function forceOnly(state: GameState, playerId: "human"|"ai", color: IngredientCo
 
 describe("set-one placement effects", () => {
   it("pumpkin festival moves orange one extra space", () => {
-    let state=createGame({seed:"pumpkin",fortuneDeck:deckWith("F23")});
+    let state=beginBrewing("pumpkin","F23");
     const actor=state.pendingDecision!.actor;forceOnly(state,actor,"orange",1);
     state=choose(state,"DRAW");
     expect(state.players[actor].pot[0]?.effectiveMovement).toBe(2);
   });
 
   it("first white reprieve returns the token without placing it", () => {
-    let state=createGame({seed:"reprieve",fortuneDeck:deckWith("F19")});
+    let state=beginBrewing("reprieve","F19");
     const actor=state.pendingDecision!.actor;forceOnly(state,actor,"white",3);
     state=choose(state,"DRAW");
     expect(state.pendingDecision?.kind).toBe("WHITE_REPRIEVE");
@@ -37,7 +43,7 @@ describe("set-one placement effects", () => {
   });
 
   it("makes a reprieved token eligible for the very next live-bag draw", () => {
-    let state=createGame({seed:"reprieve-redraw",fortuneDeck:deckWith("F19")});
+    let state=beginBrewing("reprieve-redraw","F19");
     const actor=state.pendingDecision!.actor;forceOnly(state,actor,"white",3);
     const returnedId=state.players[actor].bag[0]!;
     const beforeFirstDraw=state.rng.drawsConsumed;
@@ -53,8 +59,8 @@ describe("set-one placement effects", () => {
   });
 
   it("draws from bag contents as modified before the command", () => {
-    let orange=createGame({seed:"live-pool",fortuneDeck:deckWith("F02")});
-    let green=createGame({seed:"live-pool",fortuneDeck:deckWith("F02")});
+    let orange=beginBrewing("live-pool","F02");
+    let green=beginBrewing("live-pool","F02");
     const actor=orange.pendingDecision!.actor;
     forceOnly(orange,actor,"orange",1);
     forceOnly(green,actor,"green",1);
@@ -66,7 +72,7 @@ describe("set-one placement effects", () => {
   });
 
   it("explodes only when white total exceeds seven", () => {
-    let state=createGame({seed:"threshold",fortuneDeck:deckWith("F02")});
+    let state=beginBrewing("threshold","F02");
     const actor=state.pendingDecision!.actor;
     const first=state.players[actor].bag.find((id)=>state.tokens[id]?.color==="white"&&state.tokens[id]?.value===3)!;
     const second=state.supply.find((id)=>state.tokens[id]?.color==="white"&&state.tokens[id]?.value===3)!;
@@ -85,7 +91,7 @@ describe("set-one placement effects", () => {
   });
 
   it("flask restores the pre-placement transaction", () => {
-    let state=createGame({seed:"flask",fortuneDeck:deckWith("F02")});
+    let state=beginBrewing("flask","F02");
     const actor=state.pendingDecision!.actor;forceOnly(state,actor,"white",2);
     state=choose(state,"DRAW");
     while(state.pendingDecision?.actor!==actor) state=choose(state,"STOP");

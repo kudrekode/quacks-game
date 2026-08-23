@@ -39,6 +39,7 @@ export const FORTUNE_COPY: Record<CardId, string> = {
 };
 
 export const DECISION_CONTEXT: Record<DecisionKind, string> = {
+  FORTUNE_REVEAL: "Read the Fortune card before brewing begins.",
   FORTUNE_CHOICE: "The revealed fortune asks for your choice.",
   RAT_CHOICE: "Set your catch-up advantage before brewing.",
   BREW_ACTION: "Push your luck, bank this position, or undo the last eligible draw.",
@@ -55,4 +56,3 @@ export const DECISION_CONTEXT: Record<DecisionKind, string> = {
 };
 
 export const COLOR_ORDER: IngredientColor[] = ["orange", "green", "blue", "red", "yellow", "purple", "black"];
-

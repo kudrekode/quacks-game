@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const screenshotDir = resolve("tests/visual/screenshots");
-const states = ["home", "empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"] as const;
+const states = ["home", "empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "fortune-back", "fortune-mid-flip", "fortune-revealed", "fortune-reminder", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"] as const;
 const playerBrewingStates = new Set(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-stopped", "round9"]);
 
 test.beforeAll(async () => mkdir(screenshotDir, { recursive: true }));
@@ -33,6 +33,21 @@ for (const state of states) {
     }
     if (state === "ai-brewing") await expect(page.getByRole("heading", { name: "AI is brewing..." })).toBeVisible();
     if (state === "ai-stopped") await expect(page.getByText("Stopped", { exact: true })).toBeVisible();
+    if (state.startsWith("fortune-") && state !== "fortune-reminder") {
+      const reveal = page.getByRole("dialog", { name: "Fortune-Telling Card" });
+      await expect(reveal).toBeVisible();
+      await expect(page.getByRole("button", { name: "Draw ingredient" })).toHaveCount(0);
+      if (state === "fortune-revealed") {
+        await expect(page.getByRole("button", { name: "Continue to brewing" })).toBeVisible();
+        await expect(reveal.locator(".fortune-card-front")).toHaveCSS("opacity", "1");
+        await expect(reveal.locator(".fortune-card-back")).toHaveCSS("opacity", "0");
+      }
+      else await expect(page.getByRole("button", { name: "Continue to brewing" })).toHaveCount(0);
+    }
+    if (state === "fortune-reminder") {
+      await expect(page.locator(".fortune-summary")).toContainText("First White Reprieve");
+      await expect(page.getByRole("button", { name: "Draw ingredient" })).toBeVisible();
+    }
     if (state.startsWith("resolution-") || state === "purchasing" || state === "round-summary") {
       await expect(page.getByRole("dialog", { name: /Round 5 resolution/i })).toBeVisible();
       const shell = await page.locator(".resolution-shell").boundingBox();
@@ -204,4 +219,87 @@ test("purchase selection and RNG state survive a resolution refresh", async ({ p
     return JSON.parse(save.state).rng;
   });
   expect(rngAfter).toEqual(rngBefore);
+});
+
+for (const round of [1, 2, 5, 8, 9]) {
+  test(`Fortune reveal fixture is available in round ${round}`, async ({ page }) => {
+    await page.goto(`/?debugState=fortune-revealed&debugRound=${round}`, { waitUntil: "domcontentloaded" });
+    const dialog = page.getByRole("dialog", { name: "Fortune-Telling Card" });
+    await expect(dialog).toContainText(`Round ${round} begins`);
+    await expect(dialog.getByRole("button", { name: "Continue to brewing" })).toBeVisible();
+  });
+}
+
+test("a real completed round enters the next Fortune reveal before brewing", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem("cauldron-and-chance/settings-v2", JSON.stringify({ fastAI: true, reducedMotion: false }));
+  });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByLabel("Game seed").fill("fortune-flow-797");
+  await page.getByRole("button", { name: "New game" }).click();
+
+  const roundOneReveal = page.getByRole("dialog", { name: "Fortune-Telling Card" });
+  await expect(roundOneReveal).toBeVisible();
+  await expect(roundOneReveal).toHaveAttribute("data-stage", "drawing");
+  await expect(page.getByRole("button", { name: "Draw ingredient" })).toHaveCount(0);
+  const continueButton = page.getByRole("button", { name: "Continue to brewing" });
+  await expect(continueButton).toBeVisible({ timeout: 2_500 });
+  await expect(roundOneReveal).toContainText("Roomier Cauldrons");
+  await continueButton.click();
+
+  await expect(page.getByRole("button", { name: "Draw ingredient" })).toBeVisible();
+  await expect(page.locator(".fortune-summary")).toContainText("Roomier Cauldrons");
+  await page.screenshot({ path: resolve(screenshotDir, "fortune-brewing-reminder-live.png"), fullPage: false });
+  await page.getByRole("button", { name: "Stop brewing" }).click();
+
+  const roundResolution = page.getByRole("dialog", { name: /Round 1 resolution/i });
+  await expect(roundResolution).toBeVisible({ timeout: 20_000 });
+  const actions = [
+    "Continue to rewards",
+    "Continue to purchasing",
+    "Continue to ruby actions",
+    "Finish without buying",
+    "Finish ruby actions",
+  ];
+  for (let guard = 0; guard < 100; guard += 1) {
+    const beginNext = page.getByRole("button", { name: "Begin round 2" });
+    if (await beginNext.isVisible()) break;
+    let acted = false;
+    for (const name of actions) {
+      const button = page.getByRole("button", { name, exact: true });
+      if (await button.isVisible() && await button.isEnabled()) {
+        await button.click();
+        acted = true;
+        break;
+      }
+    }
+    if (!acted) await page.waitForTimeout(200);
+  }
+
+  const beginRoundTwo = page.getByRole("button", { name: "Begin round 2" });
+  await expect(beginRoundTwo).toBeVisible({ timeout: 20_000 });
+  await beginRoundTwo.click();
+  const roundTwoReveal = page.getByRole("dialog", { name: "Fortune-Telling Card" });
+  await expect(roundTwoReveal).toBeVisible();
+  await expect(roundTwoReveal).toContainText("Round 2 begins");
+  await expect(roundTwoReveal).toHaveAttribute("data-stage", "drawing");
+  await expect(page.getByRole("button", { name: "Draw ingredient" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue to brewing" })).toBeVisible({ timeout: 2_500 });
+  await expect(roundTwoReveal).toContainText("Pumpkin Festival");
+});
+
+test("reduced motion still blocks on a dedicated Fortune reveal", async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.clear();
+    localStorage.setItem("cauldron-and-chance/settings-v2", JSON.stringify({ reducedMotion: true }));
+  });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByLabel("Game seed").fill("fortune-reduced-motion");
+  await page.getByRole("button", { name: "New game" }).click();
+  const reveal = page.getByRole("dialog", { name: "Fortune-Telling Card" });
+  await expect(reveal).toBeVisible();
+  await expect(page.getByRole("button", { name: "Draw ingredient" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue to brewing" })).toBeVisible({ timeout: 750 });
 });

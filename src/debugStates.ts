@@ -1,15 +1,21 @@
 import { createGame } from "./engine.js";
 import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlacedToken, TokenValue } from "./types.js";
 
-export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary" | "resolution-bonus" | "resolution-rewards" | "resolution-purchase" | "resolution-purchase-selected" | "resolution-ruby" | "resolution-complete" | "effect-crow-skull" | "effect-mandrake" | "effect-keep-return" | "effect-multi-reveal" | "effect-disabled" | "effect-selected" | "effect-confirmation" | "effect-returned";
+export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "fortune-back" | "fortune-mid-flip" | "fortune-revealed" | "fortune-reminder" | "tooltip" | "toast" | "round9" | "round-summary" | "resolution-bonus" | "resolution-rewards" | "resolution-purchase" | "resolution-purchase-selected" | "resolution-ruby" | "resolution-complete" | "effect-crow-skull" | "effect-mandrake" | "effect-keep-return" | "effect-multi-reveal" | "effect-disabled" | "effect-selected" | "effect-confirmation" | "effect-returned";
 
-const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"]);
+const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "fortune-back", "fortune-mid-flip", "fortune-revealed", "fortune-reminder", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"]);
 
 export function debugStateFromLocation(): DebugStateName | "home" | undefined {
   if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return undefined;
   const value = new URLSearchParams(window.location.search).get("debugState");
   if (value === "home") return "home";
   return validStates.has(value as DebugStateName) ? value as DebugStateName : undefined;
+}
+
+export function debugRoundFromLocation(): number | undefined {
+  if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return undefined;
+  const value = Number(new URLSearchParams(window.location.search).get("debugRound"));
+  return Number.isInteger(value) && value >= 1 && value <= 9 ? value : undefined;
 }
 
 function removeEverywhere(state: GameState, id: string): void {
@@ -62,9 +68,9 @@ function setActiveFortune(state: GameState, card: NonNullable<GameState["activeF
   state.activeFortune = card;
 }
 
-export function createDebugGame(name: DebugStateName): GameState {
+export function createDebugGame(name: DebugStateName, roundOverride?: number): GameState {
   const state = createGame({ seed: `visual-${name}`, fortuneDeck: Array.from({ length: 24 }, (_, index) => `F${String(index + 1).padStart(2, "0")}` as `F${number}`) });
-  state.round = name === "round9" ? 9 : name === "dense-pot" ? 8 : 5;
+  state.round = roundOverride ?? (name === "round9" ? 9 : name === "dense-pot" ? 8 : 5);
   state.phase = name === "purchasing" ? "EVAL_E" : "BREWING";
   setActiveFortune(state, "F11");
   state.players.human.score = 32;
@@ -143,6 +149,15 @@ export function createDebugGame(name: DebugStateName): GameState {
     state.roundState.finalCommitments = {};
   }
   if (name === "fortune") setActiveFortune(state, "F15");
+  if (name === "fortune-reminder") setActiveFortune(state, "F19");
+  if (["fortune-back", "fortune-mid-flip", "fortune-revealed"].includes(name)) {
+    const presentationStage = name === "fortune-back" ? "drawing" : name === "fortune-mid-flip" ? "flipping" : "revealed";
+    setActiveFortune(state, "F19");
+    state.phase = "FORTUNE";
+    state.roundState.fortuneAcknowledged = false;
+    state.roundState.fortunePrepared = false;
+    state.pendingDecision = pending("human", "FORTUNE_REVEAL", ["continue"], { cardId: state.activeFortune, presentationStage }, "Read this round's Fortune card");
+  }
   if (["effect-crow-skull", "effect-selected"].includes(name)) {
     const preview = [take(state,"green",1),take(state,"white",1),take(state,"blue",1)];
     state.players.human.preview = preview;

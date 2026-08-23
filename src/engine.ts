@@ -24,7 +24,7 @@ function emptyRound(start: PlayerId): GameState["roundState"] {
     startOrder: orderFrom(start), activeModifiers: [], tasks: [], brewingCursor: 0,
     evaluationCursor: 0, ratTails: { human: 0, ai: 0 }, bonusDieWinners: [],
     finalCommitments: {}, finalTieBreakIndices: {}, postBrewPrepared: false,
-    fortunePrepared: false, ratPrepared: false, evalBPrepared: false,
+    fortuneAcknowledged: false, fortunePrepared: false, ratPrepared: false, evalBPrepared: false,
     explosionPrepared: false, purchasePrepared: false, rubyPrepared: false,
     revealQueue: [],
   };
@@ -157,11 +157,17 @@ function configureTask(state: GameState, task: DecisionTask): void {
   if (options.length) makeDecision(state, task.actor, task.kind, prompt, options, task.data);
 }
 
-function setupFortune(state: GameState): void {
+function drawFortune(state: GameState): CardId {
   const id = state.fortuneDeck.shift();
   if (id === undefined) throw new Error("Fortune deck exhausted");
   state.activeFortune = id;
-  log(state, "FORTUNE_REVEALED", { id, title: FORTUNE_CARDS.find((c) => c.id === id)?.title ?? id });
+  log(state, "FORTUNE_DRAWN", { id });
+  return id;
+}
+
+function setupFortune(state: GameState): void {
+  const id = state.activeFortune;
+  if (id === undefined) throw new Error("No Fortune card is available to resolve");
   const players = state.roundState.startOrder;
   const n = cardNumber(id);
   if (n >= 11) state.roundState.activeModifiers.push(id);
@@ -336,7 +342,13 @@ function resolveTaskDecision(state: GameState, pending: PendingDecision, choice:
 
 function resolvePending(state: GameState, pending: PendingDecision, choice: string): void {
   const p=state.players[pending.actor];
-  if(pending.kind==="FORTUNE_CHOICE"||pending.kind==="RAT_CHOICE") resolveTaskDecision(state,pending,choice);
+  if(pending.kind==="FORTUNE_REVEAL") {
+    const cardId=String(pending.data.cardId??"");
+    if(choice!=="continue"||cardId!==state.activeFortune)throw new Error("Fortune reveal is stale");
+    state.roundState.fortuneAcknowledged=true;
+    log(state,"FORTUNE_REVEALED",{id:cardId,title:FORTUNE_CARDS.find((card)=>card.id===cardId)?.title??cardId},p.id);
+  }
+  else if(pending.kind==="FORTUNE_CHOICE"||pending.kind==="RAT_CHOICE") resolveTaskDecision(state,pending,choice);
   else if(pending.kind==="BREW_ACTION") brewAction(state,p.id,choice);
   else if(pending.kind==="ROUND9_COMMIT") state.roundState.finalCommitments[p.id]=choice.toLowerCase() as "draw"|"stop";
   else if(pending.kind==="WHITE_REPRIEVE") {
@@ -374,6 +386,15 @@ function advance(state: GameState): void {
       state.phase="FORTUNE";continue;
     }
     if(state.phase==="FORTUNE"){
+      if(!state.activeFortune){
+        const cardId=drawFortune(state);
+        makeDecision(state,"human","FORTUNE_REVEAL","Read this round's Fortune card",["continue"],{cardId});
+        return;
+      }
+      if(!state.roundState.fortuneAcknowledged){
+        makeDecision(state,"human","FORTUNE_REVEAL","Read this round's Fortune card",["continue"],{cardId:state.activeFortune});
+        return;
+      }
       if(!state.roundState.fortunePrepared){setupFortune(state);state.roundState.fortunePrepared=true;continue;}
       state.phase="RAT_SETUP";continue;
     }

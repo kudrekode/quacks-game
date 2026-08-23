@@ -32,7 +32,7 @@ export const FOCUSED_EFFECT_KINDS = new Set<DecisionKind>([
   "RESTART", "STRONG_SELECT", "PURPLE_TIER", "EXPLOSION_CHOICE",
 ]);
 
-export function isFocusedEffectDecision(pending?: PendingDecision): pending is PendingDecision {
+export function isFocusedEffectDecision(pending?: PendingDecision): boolean {
   return Boolean(pending?.actor === "human" && FOCUSED_EFFECT_KINDS.has(pending.kind));
 }
 

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { exactExplosionProbability, type AIDecisionReport } from "./ai.js";
 import { FORTUNE_CARDS, POT_TRACK, PRICE_BOOK, RAT_BOUNDARIES, UNLOCK_ROUND } from "./content.js";
 import { createGame, deserialize, dispatch, observe, serialize } from "./engine.js";
-import { createDebugGame, debugStateFromLocation } from "./debugStates.js";
+import { createDebugGame, debugRoundFromLocation, debugStateFromLocation } from "./debugStates.js";
 import { GameIcon, type GameIconName } from "./GameIcon.js";
 import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlayerState, Token } from "./types.js";
 import { COLOR_ORDER, DECISION_CONTEXT, FORTUNE_COPY, INGREDIENT_META } from "./uiData.js";
@@ -11,11 +11,13 @@ import { HumanPotBoard } from "./HumanPotBoard.js";
 import { isRoundResolutionActive, RoundResolution, type RoundStartSnapshot, type RoundSummaryData } from "./RoundResolution.js";
 import { EffectChoiceModal } from "./EffectChoiceModal.js";
 import { buildEffectChoiceModel, isFocusedEffectDecision, returnedTokensForChoice } from "./effectChoices.js";
+import { FortuneRevealOverlay } from "./FortuneRevealOverlay.js";
 
 const SAVE_KEY = "cauldron-and-chance/save-v1";
 const SETTINGS_KEY = "cauldron-and-chance/settings-v2";
 const RESOLUTION_KEY = "cauldron-and-chance/resolution-v1";
 const DEBUG_STATE = debugStateFromLocation();
+const DEBUG_ROUND = debugRoundFromLocation();
 
 interface Settings {
   reducedMotion: boolean;
@@ -77,7 +79,7 @@ function freshSeed(): string {
 }
 
 function loadGame(): GameState {
-  if (DEBUG_STATE && DEBUG_STATE !== "home") return createDebugGame(DEBUG_STATE);
+  if (DEBUG_STATE && DEBUG_STATE !== "home") return createDebugGame(DEBUG_STATE, DEBUG_ROUND);
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) return deserialize(JSON.parse(raw).state as string);
@@ -193,7 +195,7 @@ function CompactScoreTrack({game}:{game:GameState}) {
 }
 
 function SharedBar({game,fortuneOpen,onFortune}:{game:GameState;fortuneOpen:boolean;onFortune:()=>void}) {
-  const fortune=FORTUNE_CARDS.find(card=>card.id===game.activeFortune);return <section className="shared-bar"><div className="round-pill"><GameIcon name="round"/><span>Round<b>{game.round} / 9</b></span></div><CompactScoreTrack game={game}/><div className="rat-summary"><GameIcon name="rat"/><span>Rat tails<b>+{game.roundState.ratTails.human}</b></span></div>{fortune?<button className="fortune-summary" onClick={onFortune} aria-expanded={fortuneOpen}><GameIcon name="fortune"/><span>Current fortune<b>{fortune.title}</b></span><i>{fortuneOpen?"Hide":"Read"}</i></button>:<div className="fortune-summary"><GameIcon name="fortune"/><span>Current fortune<b>Resolving...</b></span></div>}</section>;
+  const fortune=FORTUNE_CARDS.find(card=>card.id===game.activeFortune);return <section className="shared-bar"><div className="round-pill"><GameIcon name="round"/><span>Round<b>{game.round} / 9</b></span></div><CompactScoreTrack game={game}/><div className="rat-summary"><GameIcon name="rat"/><span>Rat tails<b>+{game.roundState.ratTails.human}</b></span></div>{fortune?<button className="fortune-summary" onClick={onFortune} aria-expanded={fortuneOpen}><GameIcon name="fortune"/><span>{fortune.timing==="ROUND"?"Fortune active":"Round fortune"}<b>{fortune.title}</b></span><i>{fortuneOpen?"Hide":"Read"}</i></button>:<div className="fortune-summary"><GameIcon name="fortune"/><span>Current fortune<b>Drawing...</b></span></div>}</section>;
 }
 
 function FortunePanel({game}:{game:GameState}) {const fortune=FORTUNE_CARDS.find(card=>card.id===game.activeFortune);if(!fortune)return null;return <section className="fortune-panel"><div className="fortune-seal"><GameIcon name="fortune" size={32}/></div><div><span className="eyebrow">{fortune.timing==="ROUND"?"Active this round":"Immediate effect"}</span><h2>{fortune.title}</h2><p>{FORTUNE_COPY[fortune.id]}</p>{fortune.timing==="ROUND"&&<span className="active-reminder"><GameIcon name="spark" size={16}/>Fortune effect active</span>}</div></section>}
@@ -264,7 +266,7 @@ export function App() {
   useEffect(()=>localStorage.setItem(SAVE_KEY,JSON.stringify({version:1,state:serialize(game),choices})),[game,choices]);useEffect(()=>localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)),[settings]);useEffect(()=>localStorage.setItem(RESOLUTION_KEY,JSON.stringify({gameId:game.gameId,baseline:roundStartRef.current,summary:roundSummary,bonusAcknowledged,rewardsAcknowledged,selectedPurchase} satisfies ResolutionPersistence)),[game.gameId,game.revision,roundSummary,bonusAcknowledged,rewardsAcknowledged,selectedPurchase]);
   useEffect(()=>{const entry=game.log.at(-1);if(!entry||entry.seq<=lastToastSeq.current)return;lastToastSeq.current=entry.seq;const actor=entry.actor==="human"?"You":"The rival";let next:ToastData|undefined;if(entry.type==="POT_EXPLODED")next={id:entry.seq,tone:"warning",title:"The cauldron erupted",body:`${actor} crossed the white-token threshold.`};if(entry.type==="WHITE_REPRIEVED")next={id:entry.seq,tone:"good",title:"A narrow reprieve",body:"The white ingredient returned to the live bag."};if(entry.type==="FLASK_USED")next={id:entry.seq,tone:"info",title:"Flask used",body:`${actor} returned the last white ingredient.`};if(entry.type==="TOKEN_GAINED")next={id:entry.seq,tone:"good",title:"Bag improved",body:`${actor} gained a new ingredient.`};if(next){setToast(next);const timer=window.setTimeout(()=>setToast(current=>current?.id===next.id?undefined:current),3300);return()=>window.clearTimeout(timer)}},[game.log]);
 
-  const observation=useMemo(()=>observe(game,"human"),[game]);const risk=useMemo(()=>exactExplosionProbability(observation,"human"),[observation]);const resolutionActive=isRoundResolutionActive(game,roundSummary);const focusedDecision=isFocusedEffectDecision(game.pendingDecision)?game.pendingDecision:undefined;const focusedChoiceModel=focusedDecision?buildEffectChoiceModel(game,focusedDecision):undefined;
+  const observation=useMemo(()=>observe(game,"human"),[game]);const risk=useMemo(()=>exactExplosionProbability(observation,"human"),[observation]);const resolutionActive=isRoundResolutionActive(game,roundSummary);const fortuneRevealDecision=game.pendingDecision?.kind==="FORTUNE_REVEAL"?game.pendingDecision:undefined;const focusedDecision=isFocusedEffectDecision(game.pendingDecision)?game.pendingDecision:undefined;const focusedChoiceModel=focusedDecision?buildEffectChoiceModel(game,focusedDecision):undefined;
   const resetResolutionPresentation=()=>{setRoundSummary(undefined);setBonusAcknowledged(false);setRewardsAcknowledged(false);setSelectedPurchase([])};
   const establishRoundStart=(next:GameState)=>{roundStartRef.current=currentRoundStart(next);lastToastSeq.current=next.log.at(-1)?.seq??-1;resetResolutionPresentation()};
   const newGame=()=>{const seed=seedInput.trim()||freshSeed();const next=createGame({seed});establishRoundStart(next);setGame(next);setChoices([]);setNotice("");setSeedInput(seed);setScreen("game")};
@@ -284,5 +286,5 @@ export function App() {
         <div className="ai-column"><AIBoard game={game} aiReport={aiReport} showDetails={settings.showAIDetails} onInspect={setInspected}/><BrewingDecisionPanel game={game} risk={risk} onChoose={resolveChoice}/></div></div>
         <BrewingReferenceBar game={game} bagEnabled={settings.showBag} returnPulse={returnPulse} onBag={()=>{setBagOpen(true);setBookColor(undefined);setFullLogOpen(false)}} onBook={color=>{setBookColor(color);setBagOpen(false);setFullLogOpen(false)}} onFullLog={()=>{setFullLogOpen(true);setBagOpen(false);setBookColor(undefined)}}/>
       </>}
-    </main>{bagOpen&&settings.showBag&&<ReferencePopover label="Bag composition" className="bag-reference-popover" onClose={()=>setBagOpen(false)}><BagLedger player={game.players.human} tokens={game.tokens}/></ReferencePopover>} {bookColor&&<IngredientBookPopover color={bookColor} onClose={()=>setBookColor(undefined)}/>} {fullLogOpen&&<ReferencePopover label="Full brew log" className="full-log-popover" onClose={()=>setFullLogOpen(false)}><GameLog game={game}/></ReferencePopover>} {helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)}/>} {settingsOpen&&<Modal title="Game settings" eyebrow="Display and pace" onClose={()=>setSettingsOpen(false)}><SettingsPanel settings={settings} onChange={setSettings}/></Modal>} {inspected&&<InspectCard token={inspected} onClose={()=>setInspected(undefined)}/>} {toast&&<FeedbackToast toast={toast} onClose={()=>setToast(undefined)}/>} {resolutionActive&&<RoundResolution game={game} baseline={roundStartRef.current} summary={roundSummary} bonusAcknowledged={bonusAcknowledged} rewardsAcknowledged={rewardsAcknowledged} selectedPurchase={selectedPurchase} reducedMotion={settings.reducedMotion} onBonusAcknowledged={()=>setBonusAcknowledged(true)} onRewardsAcknowledged={()=>setRewardsAcknowledged(true)} onSelectedPurchase={setSelectedPurchase} onChoose={resolveChoice} onComplete={resetResolutionPresentation}/>} {focusedDecision&&focusedChoiceModel&&<EffectChoiceModal key={focusedDecision.id} decisionId={focusedDecision.id} model={focusedChoiceModel} reducedMotion={settings.reducedMotion} onConfirm={resolveChoice}/>}<footer><span>Deterministic live-bag engine / Monte Carlo AI</span><span>Seed {game.config.seed} / revision {game.revision}</span></footer></div>;
+    </main>{bagOpen&&settings.showBag&&<ReferencePopover label="Bag composition" className="bag-reference-popover" onClose={()=>setBagOpen(false)}><BagLedger player={game.players.human} tokens={game.tokens}/></ReferencePopover>} {bookColor&&<IngredientBookPopover color={bookColor} onClose={()=>setBookColor(undefined)}/>} {fullLogOpen&&<ReferencePopover label="Full brew log" className="full-log-popover" onClose={()=>setFullLogOpen(false)}><GameLog game={game}/></ReferencePopover>} {helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)}/>} {settingsOpen&&<Modal title="Game settings" eyebrow="Display and pace" onClose={()=>setSettingsOpen(false)}><SettingsPanel settings={settings} onChange={setSettings}/></Modal>} {inspected&&<InspectCard token={inspected} onClose={()=>setInspected(undefined)}/>} {toast&&<FeedbackToast toast={toast} onClose={()=>setToast(undefined)}/>} {resolutionActive&&<RoundResolution game={game} baseline={roundStartRef.current} summary={roundSummary} bonusAcknowledged={bonusAcknowledged} rewardsAcknowledged={rewardsAcknowledged} selectedPurchase={selectedPurchase} reducedMotion={settings.reducedMotion} onBonusAcknowledged={()=>setBonusAcknowledged(true)} onRewardsAcknowledged={()=>setRewardsAcknowledged(true)} onSelectedPurchase={setSelectedPurchase} onChoose={resolveChoice} onComplete={resetResolutionPresentation}/>} {fortuneRevealDecision&&!resolutionActive&&<FortuneRevealOverlay key={fortuneRevealDecision.id} game={game} decision={fortuneRevealDecision} reducedMotion={settings.reducedMotion} onContinue={()=>resolveChoice("continue")}/>} {focusedDecision&&focusedChoiceModel&&<EffectChoiceModal key={focusedDecision.id} decisionId={focusedDecision.id} model={focusedChoiceModel} reducedMotion={settings.reducedMotion} onConfirm={resolveChoice}/>}<footer><span>Deterministic live-bag engine / Monte Carlo AI</span><span>Seed {game.config.seed} / revision {game.revision}</span></footer></div>;
 }

@@ -101,6 +101,7 @@ export interface PlayerState {
 }
 
 export type DecisionKind =
+  | "FORTUNE_REVEAL"
   | "FORTUNE_CHOICE"
   | "RAT_CHOICE"
   | "BREW_ACTION"
@@ -141,6 +142,7 @@ export interface RoundState {
   finalCommitments: Partial<Record<PlayerId, "draw" | "stop">>;
   finalTieBreakIndices: Partial<Record<PlayerId, number>>;
   postBrewPrepared: boolean;
+  fortuneAcknowledged: boolean;
   fortunePrepared: boolean;
   ratPrepared: boolean;
   evalBPrepared: boolean;

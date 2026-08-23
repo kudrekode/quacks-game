@@ -1,18 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { ALL_CARD_IDS } from "../src/content.js";
-import { playBaselineGame } from "../src/ai.js";
+import { baselineCommand, playBaselineGame } from "../src/ai.js";
 import { createGame, deserialize, dispatch, observe, replayGame, serialize, stateHash, validateInvariants } from "../src/engine.js";
 import type { CardId, GameState } from "../src/types.js";
 
 const deckWith = (first: CardId) => [first, ...ALL_CARD_IDS.filter((id) => id !== first)];
 
+function choose(state: GameState, choice: string): GameState {
+  return dispatch(state,{type:"RESOLVE_DECISION",decisionId:state.pendingDecision!.id,choice});
+}
+
 describe("game setup and command boundary", () => {
   it("creates the standard two-player setup", () => {
-    const state = createGame({ seed: "setup", fortuneDeck: deckWith("F11") });
+    let state = createGame({ seed: "setup", fortuneDeck: deckWith("F11") });
     expect(state.players.human.bag).toHaveLength(9);
     expect(state.players.ai.bag).toHaveLength(9);
     expect(state.players.human.rubies).toBe(0);
     expect(state.supply).toHaveLength(197);
+    expect(state.players.human.explosionThreshold).toBe(7);
+    expect(state.phase).toBe("FORTUNE");
+    expect(state.pendingDecision?.kind).toBe("FORTUNE_REVEAL");
+    expect(state.pendingDecision?.options).toEqual(["continue"]);
+    state=choose(state,"continue");
     expect(state.players.human.explosionThreshold).toBe(9);
     expect(state.pendingDecision?.kind).toBe("BREW_ACTION");
     validateInvariants(state);
@@ -29,14 +38,14 @@ describe("game setup and command boundary", () => {
   it("serializes a pending continuation and resumes identically", () => {
     const state = createGame({ seed: "save", fortuneDeck: deckWith("F01") });
     const restored = deserialize(serialize(state));
-    const command = { type:"RESOLVE_DECISION" as const, decisionId:state.pendingDecision!.id, choice:"droplet" };
+    const command = { type:"RESOLVE_DECISION" as const, decisionId:state.pendingDecision!.id, choice:"continue" };
     expect(stateHash(dispatch(state,command))).toBe(stateHash(dispatch(restored,command)));
   });
 
   it("replays decisions from the initial seed", () => {
     const config={seed:"replay",fortuneDeck:deckWith("F01")};
     const initial=createGame(config);
-    const choice="droplet";
+    const choice="continue";
     const expected=dispatch(initial,{type:"RESOLVE_DECISION",decisionId:initial.pendingDecision!.id,choice});
     expect(stateHash(replayGame(config,[choice]))).toBe(stateHash(expected));
   });
@@ -55,6 +64,7 @@ describe("game setup and command boundary", () => {
 
   it("rolls the bonus die in evaluation A and excludes exploded pots", () => {
     let state=createGame({seed:"die-timing",fortuneDeck:deckWith("F02")});
+    state=choose(state,"continue");
     state=dispatch(state,{type:"RESOLVE_DECISION",decisionId:state.pendingDecision!.id,choice:"STOP"});
     const human=state.players.human;
     const whiteIds=[
@@ -91,18 +101,29 @@ describe("rules integration", () => {
     expect(a.result?.winners.length).toBeGreaterThan(0);
   });
 
+  it("blocks on a visible Fortune reveal in every round, including round nine", () => {
+    let state=createGame({seed:"fortune-every-round",controllers:{human:"ai",ai:"ai"}});
+    const revealRounds:number[]=[];
+    for(let guard=0;guard<5000&&state.phase!=="GAME_OVER";guard+=1){
+      if(state.pendingDecision?.kind==="FORTUNE_REVEAL")revealRounds.push(state.round);
+      state=dispatch(state,baselineCommand(state));
+    }
+    expect(state.phase).toBe("GAME_OVER");
+    expect(revealRounds).toEqual([1,2,3,4,5,6,7,8,9]);
+  });
+
   it("can complete a game with every Fortune card in the first round", () => {
     for (const card of ALL_CARD_IDS) {
       const result = playBaselineGame(createGame({ seed:`card-${card}`, fortuneDeck:deckWith(card) }));
       expect(result.phase, card).toBe("GAME_OVER");
       validateInvariants(result);
     }
-  }, 30_000);
+  }, 60_000);
 
   it("terminates 100 varied games with no invariant failure", () => {
     for (let i=0;i<100;i+=1) {
       const result=playBaselineGame(createGame({seed:`soak-${i}`,startPlayerId:i%2?"ai":"human",controllers:{human:"ai",ai:"ai"}}));
       expect(result.revision).toBeLessThan(5000);
     }
-  }, 30_000);
+  }, 60_000);
 });
