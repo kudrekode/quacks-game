@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { exactExplosionProbability, type AIDecisionReport } from "./ai.js";
 import { FORTUNE_CARDS, POT_TRACK, PRICE_BOOK, RAT_BOUNDARIES, UNLOCK_ROUND } from "./content.js";
 import { createGame, deserialize, dispatch, observe, serialize } from "./engine.js";
