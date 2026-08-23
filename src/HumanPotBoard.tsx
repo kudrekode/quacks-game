@@ -18,6 +18,8 @@ interface HumanPotBoardProps {
   explosionThreshold: number;
   reward: Pick<TrackSpace, "coins" | "vp" | "ruby">;
   onInspect?: (token: Token) => void;
+  variant?: "human" | "ai";
+  actorLabel?: string;
 }
 
 interface Point { x: number; y: number }
@@ -55,6 +57,8 @@ export function HumanPotBoard({
   explosionThreshold,
   reward,
   onInspect,
+  variant = "human",
+  actorLabel = "Human",
 }: HumanPotBoardProps) {
   const points = spaces.map((_, index) => spiralPoint(index, spaces.length));
   const trackPath = pathThrough(points);
@@ -64,8 +68,8 @@ export function HumanPotBoard({
   }
   const stateLabel = whiteTotal > explosionThreshold ? "Exploded" : whiteTotal >= explosionThreshold - 1 ? "Danger" : whiteTotal >= explosionThreshold - 2 ? "Caution" : "Safe";
 
-  return <div className="human-pot-wrap">
-    <svg className="human-pot-board" viewBox="0 0 740 520" role="img" aria-label={`Human cauldron. Current position ${currentPosition}. White risk ${whiteTotal} of ${explosionThreshold}. Next reward ${reward.coins} buying power and ${reward.vp} victory points.`}>
+  return <div className={`human-pot-wrap${variant === "ai" ? " ai-spiral-wrap" : ""}`}>
+    <svg className={`human-pot-board${variant === "ai" ? " ai-spiral-board" : ""}`} viewBox="0 0 740 520" role="img" aria-label={`${actorLabel} cauldron. Current position ${currentPosition}. White risk ${whiteTotal} of ${explosionThreshold}. Next reward ${reward.coins} buying power and ${reward.vp} victory points.`}>
       <defs>
         <radialGradient id="human-well" cx="50%" cy="42%"><stop stopColor="#245349"/><stop offset=".68" stopColor="#102f2d"/><stop offset="1" stopColor="#071b1b"/></radialGradient>
         <linearGradient id="human-board-stone" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#9f8a63"/><stop offset=".55" stopColor="#67573e"/><stop offset="1" stopColor="#3d3021"/></linearGradient>

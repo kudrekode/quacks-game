@@ -1,9 +1,9 @@
 import { createGame } from "./engine.js";
 import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlacedToken, TokenValue } from "./types.js";
 
-export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary";
+export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "tooltip" | "toast" | "round9" | "round-summary";
 
-const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary"]);
+const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "tooltip", "toast", "round9", "round-summary"]);
 
 export function debugStateFromLocation(): DebugStateName | "home" | undefined {
   if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return undefined;
@@ -90,6 +90,11 @@ export function createDebugGame(name: DebugStateName): GameState {
   }
   if (name === "dense-pot") fillPot(state, "human", [["orange", 1], ["green", 1], ["blue", 1], ["red", 1], ["yellow", 1], ["purple", 1], ["black", 1], ["white", 1], ["green", 2], ["blue", 2], ["red", 2], ["yellow", 2], ["white", 2], ["green", 4], ["blue", 4], ["red", 4], ["yellow", 4], ["green", 4]]);
   if (name === "ai-brewing") state.pendingDecision = pending("ai", "BREW_ACTION", ["DRAW", "STOP"]);
+  if (name === "ai-stopped") {
+    state.players.ai.stopped = true;
+    state.pendingDecision = pending("human", "BREW_ACTION", ["DRAW", "STOP", "USE_FLASK"]);
+    state.log.push(logEntry(state, 5, "PLAYER_STOPPED", "ai", { trackIndex: state.players.ai.pot.at(-1)?.trackIndex ?? 0 }));
+  }
   if (name === "purchasing") {
     state.players.human.roundCoins = 18;
     state.pendingDecision = pending("human", "PURCHASE", ["none", "buy:green:1", "buy:blue:1", "buy:orange:1", "buy:red:1", "buy:green:1+blue:1", "buy:orange:1+red:1"]);
