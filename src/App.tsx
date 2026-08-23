@@ -2,20 +2,40 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { exactExplosionProbability, type AIDecisionReport } from "./ai.js";
 import { FORTUNE_CARDS, POT_TRACK, PRICE_BOOK, RAT_BOUNDARIES, UNLOCK_ROUND } from "./content.js";
 import { createGame, deserialize, dispatch, observe, serialize } from "./engine.js";
-import type { GameState, IngredientColor, PendingDecision, PlacedToken, PlayerId, PlayerState, Token } from "./types.js";
+import { createDebugGame, debugStateFromLocation } from "./debugStates.js";
+import { GameIcon, type GameIconName } from "./GameIcon.js";
+import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlacedToken, PlayerState, Token } from "./types.js";
 import { COLOR_ORDER, DECISION_CONTEXT, FORTUNE_COPY, INGREDIENT_META } from "./uiData.js";
 
 const SAVE_KEY = "cauldron-and-chance/save-v1";
-const SETTINGS_KEY = "cauldron-and-chance/settings-v1";
+const SETTINGS_KEY = "cauldron-and-chance/settings-v2";
+const DEBUG_STATE = debugStateFromLocation();
 
 interface Settings {
   reducedMotion: boolean;
   highContrast: boolean;
   showRisk: boolean;
   fastAI: boolean;
+  showBag: boolean;
+  showAIDetails: boolean;
 }
 
-const DEFAULT_SETTINGS: Settings = { reducedMotion: false, highContrast: false, showRisk: true, fastAI: false };
+interface RoundSummaryData {
+  round: number;
+  humanScore: number;
+  aiScore: number;
+  humanRubies: number;
+  aiRubies: number;
+  nextHumanRats: number;
+  nextAiRats: number;
+}
+
+interface ToastData { id: number; tone: "good" | "warning" | "info"; title: string; body: string }
+
+const DEFAULT_SETTINGS: Settings = {
+  reducedMotion: false, highContrast: false, showRisk: true,
+  fastAI: false, showBag: true, showAIDetails: true,
+};
 
 function freshSeed(): string {
   const values = new Uint32Array(2);
@@ -24,12 +44,11 @@ function freshSeed(): string {
 }
 
 function loadGame(): GameState {
+  if (DEBUG_STATE && DEBUG_STATE !== "home") return createDebugGame(DEBUG_STATE);
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (raw) return deserialize(JSON.parse(raw).state as string);
-  } catch {
-    localStorage.removeItem(SAVE_KEY);
-  }
+  } catch { localStorage.removeItem(SAVE_KEY); }
   return createGame({ seed: freshSeed() });
 }
 
@@ -42,330 +61,191 @@ function titleCase(value: string): string {
   return value.toLowerCase().replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function groupedTokens(ids: readonly string[], tokens: Record<string, Token>): Array<{ color: IngredientColor; value: number; count: number }> {
-  const counts = new Map<string, { color: IngredientColor; value: number; count: number }>();
+function groupedTokens(ids: readonly string[], tokens: Record<string, Token>) {
+  const counts = new Map<string, { color: IngredientColor; value: Token["value"]; count: number }>();
   for (const id of ids) {
-    const token = tokens[id];
-    if (!token) continue;
+    const token = tokens[id]; if (!token) continue;
     const key = `${token.color}:${token.value}`;
     const entry = counts.get(key) ?? { color: token.color, value: token.value, count: 0 };
-    entry.count += 1;
-    counts.set(key, entry);
+    entry.count += 1; counts.set(key, entry);
   }
-  return [...counts.values()].sort((a, b) => a.color.localeCompare(b.color) || a.value - b.value);
+  return [...counts.values()].sort((a,b)=>a.color.localeCompare(b.color)||a.value-b.value);
 }
 
-function IngredientChip({ token, small = false }: { token: Token; small?: boolean }) {
-  const meta = INGREDIENT_META[token.color];
-  return (
-    <span className={`ingredient-chip ingredient-${token.color}${small ? " chip-small" : ""}`} aria-label={`${meta.name}, value ${token.value}`} title={`${meta.name} · ${meta.note}`}>
-      <span aria-hidden="true">{meta.symbol}</span><b>{token.value}</b>
-    </span>
-  );
-}
-
-function TrackPoint({ index }: { index: number }) {
-  const angle = -1.35 + index * 0.48;
-  const radius = 184 - index * 2.7;
-  return { x: 220 + Math.cos(angle) * radius, y: 220 + Math.sin(angle) * radius };
-}
-
-function PotBoard({ player, tokens, compact = false }: { player: PlayerState; tokens: Record<string, Token>; compact?: boolean }) {
-  const placedByIndex = new Map<number, PlacedToken[]>();
-  for (const placed of player.pot) placedByIndex.set(placed.trackIndex, [...(placedByIndex.get(placed.trackIndex) ?? []), placed]);
+function scoringData(player: PlayerState) {
   const anchor = player.pot.at(-1)?.trackIndex ?? player.ratIndex ?? player.dropletIndex;
-  const nextIndex = Math.min(53, anchor + 1);
-  const next = POT_TRACK[nextIndex] ?? POT_TRACK.at(-1)!;
-  return (
-    <div className={`pot-wrap${compact ? " pot-compact" : ""}`}>
-      <svg className="pot-board" viewBox="0 0 440 440" role="img" aria-label={`${player.id} pot track, current scoring space ${next.coins} coins and ${next.vp} points`}>
-        <defs>
-          <radialGradient id={`pot-${player.id}`}><stop offset="0" stopColor="#183b3c"/><stop offset="1" stopColor="#0b2024"/></radialGradient>
-          <filter id={`glow-${player.id}`}><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-        </defs>
-        <circle cx="220" cy="220" r="208" fill={`url(#pot-${player.id})`} stroke="#a9783f" strokeWidth="5"/>
-        <circle cx="220" cy="220" r="196" fill="none" stroke="#d0aa6b" strokeOpacity=".25" strokeWidth="1" strokeDasharray="3 8"/>
-        {POT_TRACK.map((space) => {
-          const { x, y } = TrackPoint({ index: space.trackIndex });
-          const active = space.trackIndex === nextIndex;
-          return <g key={space.trackIndex} transform={`translate(${x} ${y})`}>
-            <circle r={active ? 13 : 8.5} className={active ? "track-space active-space" : "track-space"}/>
-            {space.ruby && <path d="M0-5 5 0 0 5-5 0Z" className="track-ruby"/>}
-            {(space.trackIndex % 5 === 0 || active) && <text y={active ? -17 : -12} className="track-number">{space.coins}</text>}
-          </g>;
-        })}
-        {player.dropletIndex > 0 && (() => { const {x,y}=TrackPoint({index:player.dropletIndex}); return <path transform={`translate(${x} ${y})`} d="M0-12 C8-3 9 3 0 10 C-9 3-8-3 0-12Z" className="droplet-marker"/>; })()}
-        {player.ratIndex !== undefined && (() => { const {x,y}=TrackPoint({index:player.ratIndex}); return <text transform={`translate(${x-6} ${y+6})`} className="rat-marker">♙</text>; })()}
-        {[...placedByIndex.entries()].map(([index, entries]) => {
-          const {x,y}=TrackPoint({index});
-          return entries.map((placed, offset) => {
-            const token = tokens[placed.tokenId];
-            if (!token) return null;
-            return <g key={placed.tokenId} transform={`translate(${x + offset * 5} ${y - offset * 5})`} filter={`url(#glow-${player.id})`}>
-              <circle r="12" className={`svg-chip ingredient-${token.color}`}/>
-              <text y="4" className="svg-chip-symbol">{INGREDIENT_META[token.color].symbol}{token.value}</text>
-            </g>;
-          });
-        })}
-        <g transform="translate(220 213)">
-          <text textAnchor="middle" className="pot-total">{player.whiteTotal} / {player.explosionThreshold}</text>
-          <text y="24" textAnchor="middle" className="pot-caption">WHITE LOAD</text>
-          <text y="54" textAnchor="middle" className="pot-reward">{next.coins} coins · {next.vp} VP{next.ruby ? " · ruby" : ""}</text>
-        </g>
-      </svg>
-    </div>
-  );
+  const index = Math.min(53, anchor + 1);
+  return { anchor, index, space: POT_TRACK[index] ?? POT_TRACK.at(-1)! };
 }
 
-function PlayerStats({ player, label, thinking }: { player: PlayerState; label: string; thinking?: string }) {
-  return (
-    <header className="player-heading">
-      <div><span className="eyebrow">{label}</span><h2>{player.id === "human" ? "Your workbench" : "The rival alchemist"}</h2>{thinking && <p className="thinking"><span/> {thinking}</p>}</div>
-      <dl className="stats-row">
-        <div><dt>VP</dt><dd>{player.score}</dd></div>
-        <div><dt>Rubies</dt><dd>◆ {player.rubies}</dd></div>
-        <div><dt>Flask</dt><dd>{player.flaskFull ? "Full" : "Empty"}</dd></div>
-        <div><dt>Bag</dt><dd>{player.bag.length}</dd></div>
-      </dl>
-    </header>
-  );
+function ingredientDetail(token: Token): string {
+  const price = PRICE_BOOK[token.color]?.[token.value];
+  const move = `Moves ${token.value} space${token.value === 1 ? "" : "s"}.`;
+  return `${move} ${INGREDIENT_META[token.color].note}.${price === undefined ? " Not sold in the market." : ` Market price: ${price} coins.`}`;
 }
 
-function BagLedger({ player, tokens, hiddenLabel = false }: { player: PlayerState; tokens: Record<string, Token>; hiddenLabel?: boolean }) {
-  const groups = groupedTokens([...player.bag, ...player.pot.map((placed) => placed.tokenId)], tokens);
-  return <div className="bag-ledger" aria-label={hiddenLabel ? "Publicly known rival bag composition" : "Your known bag composition"}>
-    {groups.map((group) => <span key={`${group.color}:${group.value}`} className="bag-entry"><IngredientChip token={{id:"",color:group.color,value:group.value as Token["value"]}} small/><span>×{group.count}</span></span>)}
+function IngredientChip({ token, small = false, onInspect }: { token: Token; small?: boolean; onInspect?: (token:Token)=>void }) {
+  const meta=INGREDIENT_META[token.color];
+  const content=<><span aria-hidden="true">{meta.symbol}</span><b>{token.value}</b></>;
+  if(onInspect)return <button className={`ingredient-chip ingredient-${token.color}${small?" chip-small":""}`} onClick={()=>onInspect(token)} aria-label={`Inspect ${meta.name} ${token.value}`} title={ingredientDetail(token)}>{content}</button>;
+  return <span className={`ingredient-chip ingredient-${token.color}${small?" chip-small":""}`} aria-label={`${meta.name}, value ${token.value}`} title={ingredientDetail(token)}>{content}</span>;
+}
+
+function TrackPoint(index: number) {
+  const angle=Math.PI-.22+index*((Math.PI*2-.45)/53);
+  return {x:300+Math.cos(angle)*258,y:180+Math.sin(angle)*132};
+}
+
+function PotBoard({ player, tokens, compact=false, onInspect }: { player:PlayerState;tokens:Record<string,Token>;compact?:boolean;onInspect?:(token:Token)=>void }) {
+  const placedByIndex=new Map<number,PlacedToken[]>();
+  for(const placed of player.pot)placedByIndex.set(placed.trackIndex,[...(placedByIndex.get(placed.trackIndex)??[]),placed]);
+  const {index:nextIndex,space:next}=scoringData(player);
+  return <div className={`pot-wrap${compact?" pot-compact":""}`}>
+    <svg className="pot-board" viewBox="0 0 600 360" role="img" aria-label={`${player.id} pot. Current reward: ${next.coins} buying power and ${next.vp} victory points.`}>
+      <defs><radialGradient id={`pot-${player.id}`}><stop offset="0" stopColor="#194745"/><stop offset=".7" stopColor="#102d30"/><stop offset="1" stopColor="#081a1d"/></radialGradient><filter id={`glow-${player.id}`}><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+      <ellipse cx="300" cy="180" rx="286" ry="158" fill={`url(#pot-${player.id})`} stroke="#b7894e" strokeWidth="5"/><ellipse cx="300" cy="180" rx="275" ry="147" fill="none" stroke="#d6b675" strokeOpacity=".2" strokeDasharray="3 8"/>
+      {POT_TRACK.map(space=>{const {x,y}=TrackPoint(space.trackIndex);const active=space.trackIndex===nextIndex;return <g key={space.trackIndex} transform={`translate(${x} ${y})`} tabIndex={0} role="img" aria-label={`Space ${space.trackIndex}. ${space.coins} buying power, ${space.vp} victory points${space.ruby?", ruby":""}.`}>
+        <title>{`Space ${space.trackIndex}\nBuying power: ${space.coins}\nVictory points: ${space.vp}\nRuby: ${space.ruby?"Yes":"No"}`}</title>
+        <circle r={active?15:9.5} className={active?"track-space active-space":"track-space"}/>{space.ruby&&<path d="M0-5 5 0 0 5-5 0Z" className="track-ruby"/>}{(space.trackIndex%5===0||active)&&<text y={active?-19:-13} className="track-number">{space.coins}</text>}
+      </g>})}
+      {player.dropletIndex>0&&(()=>{const{x,y}=TrackPoint(player.dropletIndex);return <path transform={`translate(${x} ${y})`} d="M0-12 C8-3 9 3 0 10 C-9 3-8-3 0-12Z" className="droplet-marker"/>})()}
+      {player.ratIndex!==undefined&&(()=>{const{x,y}=TrackPoint(player.ratIndex);return <path transform={`translate(${x} ${y}) scale(.7)`} d="M-8 6c4-10 14-10 17-4 2 5-4 10-9 6-2-2 0-5 3-3" className="rat-marker-path"/>})()}
+      {[...placedByIndex.entries()].flatMap(([index,entries])=>{const{x,y}=TrackPoint(index);return entries.map((placed,offset)=>{const token=tokens[placed.tokenId];if(!token)return null;return <g key={placed.tokenId} className="placed-chip" transform={`translate(${x+offset*5} ${y-offset*5})`} filter={`url(#glow-${player.id})`} tabIndex={0} role="button" onClick={()=>onInspect?.(token)} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" ")onInspect?.(token)}} aria-label={`Inspect ${INGREDIENT_META[token.color].name} ${token.value}`}>
+        <title>{`${INGREDIENT_META[token.color].name.toUpperCase()} ${token.value}\n${ingredientDetail(token)}\nPlaced at space ${placed.trackIndex}. Effective movement ${placed.effectiveMovement}.`}</title><circle r="15" className={`svg-chip ingredient-${token.color}`}/><text y="4" className="svg-chip-symbol">{INGREDIENT_META[token.color].symbol}{token.value}</text>
+      </g>})})}
+      <g transform="translate(300 166)"><text textAnchor="middle" className="pot-total">{player.whiteTotal} / {player.explosionThreshold}</text><text y="24" textAnchor="middle" className="pot-caption">EXPLOSION LOAD</text><text y="58" textAnchor="middle" className="pot-reward">{next.coins} buying power</text><text y="77" textAnchor="middle" className="pot-reward">{next.vp} victory points{next.ruby?" + ruby":""}</text></g>
+    </svg>
   </div>;
 }
 
-function ScoreTrack({ game }: { game: GameState }) {
-  return <section className="score-card" aria-labelledby="score-title">
-    <div className="section-title"><span className="eyebrow">City square</span><h2 id="score-title">Score procession</h2></div>
-    <div className="score-track">
-      {Array.from({length:50},(_,i)=>i+1).map((score) => {
-        const humans = ((game.players.human.score - 1) % 50) + 1 === score && game.players.human.score > 0;
-        const ais = ((game.players.ai.score - 1) % 50) + 1 === score && game.players.ai.score > 0;
-        return <span key={score} className={`score-space${RAT_BOUNDARIES.includes(score as never)?" rat-boundary":""}`} title={`${score} points`}>
-          {(score===1||score%5===0)&&<small>{score}</small>}{humans&&<i className="score-human" aria-label={`You at ${game.players.human.score}`}>Y</i>}{ais&&<i className="score-ai" aria-label={`AI at ${game.players.ai.score}`}>A</i>}
-        </span>;
-      })}
-    </div>
-    <div className="score-summary"><span><i className="score-human">Y</i> You {game.players.human.score}{game.players.human.score>=50&&` · lap ${Math.floor(game.players.human.score/50)+1}`}</span><span><i className="score-ai">A</i> Rival {game.players.ai.score}{game.players.ai.score>=50&&` · lap ${Math.floor(game.players.ai.score/50)+1}`}</span></div>
+function Resource({icon,label,value}:{icon:GameIconName;label:string;value:React.ReactNode}) {return <div className="resource"><GameIcon name={icon}/><span>{label}<b>{value}</b></span></div>}
+
+function BagLedger({player,tokens,label="Your bag"}:{player:PlayerState;tokens:Record<string,Token>;label?:string}) {
+  const groups=groupedTokens(player.bag,tokens);
+  return <section className="bag-popover"><header><div><span className="eyebrow">Live composition</span><h3>{label}</h3></div><b>{player.bag.length} tokens</b></header><div className="bag-grid">{groups.map(group=><div key={`${group.color}:${group.value}`}><IngredientChip token={{id:"",color:group.color,value:group.value}} small/><span><b>{INGREDIENT_META[group.color].name}</b><small>Value {group.value} x {group.count}</small></span></div>)}</div><p>No order is stored or shown. Every draw samples this current pool.</p></section>;
+}
+
+function BrewingStatus({game,risk,showRisk}:{game:GameState;risk:number;showRisk:boolean}) {
+  const player=game.players.human;const {anchor,space}=scoringData(player);const brewing=game.phase==="BREWING"||game.phase==="POST_BREW";
+  return <section className={`brewing-status${player.exploded?" status-exploded":""}`} aria-label="Current brewing status">
+    <div className="status-title"><GameIcon name={player.exploded?"explosion":"spark"}/><span><small>{game.round===9?"Final-round brew":brewing?"Potion status":"Current pot"}</small><b>{player.exploded?"Pot exploded":game.round===9&&game.pendingDecision?.kind==="ROUND9_COMMIT"?"Choose in secret":"Brew under control"}</b></span></div>
+    <div className="brew-facts"><Resource icon="round" label="Current space" value={anchor}/><Resource icon="coin" label="Buying power" value={space.coins}/><Resource icon="vp" label="Victory points" value={space.vp}/><Resource icon="explosion" label="White total" value={`${player.whiteTotal} / ${player.explosionThreshold}`}/></div>
+    <div className="explosion-meter"><span style={{width:`${Math.min(100,player.whiteTotal/player.explosionThreshold*100)}%`}}/><i style={{left:`${Math.min(100,player.whiteTotal/player.explosionThreshold*100)}%`}}/></div>
+    <p>{showRisk?`${Math.round(risk*100)}% chance the next random ingredient causes an immediate explosion.`:"Risk percentage hidden. White total and threshold remain visible."}{game.round===9?" Your draw or stop choice is hidden until both brewers commit.":""}</p>
   </section>;
 }
 
-function Market({ game }: { game: GameState }) {
-  const observation = observe(game, "human");
-  return <section className="market-card" aria-labelledby="market-title">
-    <div className="section-title"><span className="eyebrow">Ingredient quarter</span><h2 id="market-title">Market</h2></div>
-    <div className="market-grid">
-      {COLOR_ORDER.map((color) => {
-        const meta = INGREDIENT_META[color];
-        const locked = game.round < UNLOCK_ROUND[color];
-        const prices = PRICE_BOOK[color] ?? {};
-        return <article key={color} className={`market-item ingredient-border-${color}${locked?" market-locked":""}`}>
-          <div className="market-name"><span className={`market-symbol ingredient-${color}`}>{meta.symbol}</span><div><b>{meta.name}</b><small>{locked ? `Unlocks round ${UNLOCK_ROUND[color]}` : meta.note}</small></div></div>
-          <div className="market-prices">{Object.entries(prices).map(([value,cost])=><span key={value}><b>{value}</b><small>{cost}¢ · {observation.supplyCounts[`${color}:${value}`]??0} left</small></span>)}</div>
-        </article>;
-      })}
-    </div>
-  </section>;
+function optionLabel(option:string,game:GameState):string {
+  const labels:Record<string,string>={DRAW:"Draw ingredient",STOP:"Stop brewing",USE_FLASK:"Use flask",none:"Choose nothing",done:"Finish",droplet:"Advance droplet",flask:"Refill flask",score:"Keep victory points",buy:"Keep shopping coins",place:"Place it",return:"Return it to the live bag",remove:"Return the white ingredient",keep:"Keep the white ingredient",restart:"Restart this brew",continue:"Continue this brew","vp:4":"Gain 4 victory points","rubies:3":"Gain 3 rubies","rat-vp":"Gain points from rat tails",decline:"Decline"};
+  if(labels[option])return labels[option];
+  if(option.startsWith("token:")){const token=game.tokens[option.slice(6)];return token?`${INGREDIENT_META[token.color].name} ${token.value}`:option}
+  if(option.startsWith("tier:")){const tier=Number(option.slice(5));return tier===1?"Gain 1 victory point":tier===2?"Gain 1 victory point and 1 ruby":"Gain 2 victory points and advance your droplet"}
+  if(option.startsWith("exchange:")){const n=Number(option.slice(9));return n===0?"Keep every rat tail":`Trade ${n} rat tail${n===1?"":"s"} for ${n} ${n===1?"ruby":"rubies"}`}
+  if(option.startsWith("upgrade:")){const token=game.tokens[option.split(":")[1]??""];return `Upgrade ${token?INGREDIENT_META[token.color].name:"ingredient"} to value ${option.split(":")[2]}`}
+  const[c,v]=option.split(":");if(INGREDIENT_META[c as IngredientColor])return `${INGREDIENT_META[c as IngredientColor].name} ${v}`;
+  return titleCase(option.replaceAll(":"," "));
 }
 
-function optionLabel(option: string, game: GameState): string {
-  if (option === "DRAW") return "Draw again";
-  if (option === "STOP") return "Stop brewing";
-  if (option === "USE_FLASK") return "Use flask";
-  if (option === "none") return "Choose nothing";
-  if (option === "done") return "Finish";
-  if (option === "droplet") return "Advance droplet";
-  if (option === "flask") return "Refill flask";
-  if (option === "score") return "Keep victory points";
-  if (option === "buy") return "Keep shopping coins";
-  if (option === "place") return "Place it";
-  if (option === "return") return "Return it safely";
-  if (option === "remove") return "Return the white chip";
-  if (option === "keep") return "Keep the white chip";
-  if (option === "restart") return "Restart this brew";
-  if (option === "continue") return "Continue this brew";
-  if (option.startsWith("token:")) {
-    const token = game.tokens[option.slice(6)];
-    return token ? `${INGREDIENT_META[token.color].name} ${token.value}` : option;
-  }
-  if (option.startsWith("buy:")) return option.slice(4).split("+").map((part)=>{const [color,value]=part.split(":");return `${INGREDIENT_META[color as IngredientColor]?.name ?? color} ${value}`;}).join(" + ");
-  if (option.startsWith("tier:")) return `Reward tier ${option.slice(5)}`;
-  if (option.startsWith("exchange:")) return `Trade ${option.slice(9)} rat tail${option.endsWith(":1")?"":"s"}`;
-  if (option.startsWith("upgrade:")) { const token=game.tokens[option.split(":")[1]??""]; return `Upgrade ${token ? INGREDIENT_META[token.color].name : "ingredient"} to ${option.split(":")[2]}`; }
-  const [maybeColor, maybeValue] = option.split(":");
-  if (INGREDIENT_META[maybeColor as IngredientColor]) return `${INGREDIENT_META[maybeColor as IngredientColor].name} ${maybeValue}`;
-  return titleCase(option.replaceAll(":", " "));
+function purchaseCost(option:string):number {
+  if(option==="none")return 0;return option.slice(4).split("+").reduce((sum,part)=>{const[c,v]=part.split(":");return sum+(PRICE_BOOK[c as IngredientColor]?.[Number(v) as Token["value"]]??0)},0);
 }
 
-function DecisionCard({ pending, game, risk, onChoose }: { pending: PendingDecision; game: GameState; risk?: number; onChoose: (choice:string)=>void }) {
-  const player = game.players.human;
-  return <section className="decision-card" aria-labelledby="decision-title">
-    <div className="decision-kicker"><span className="pulse-dot"/> Your decision · {titleCase(pending.kind)}</div>
-    <h2 id="decision-title">{pending.prompt}</h2>
-    <p>{DECISION_CONTEXT[pending.kind]}</p>
-    {pending.kind === "BREW_ACTION" && <div className="risk-meter"><div>{risk !== undefined ? <><b>{Math.round(risk*100)}%</b><span>immediate explosion risk</span></> : <><b>Risk hidden</b><span>Enable it in display settings</span></>}</div>{risk !== undefined && <div className="risk-bar"><span style={{width:`${risk*100}%`}}/></div>}<small>White load {player.whiteTotal}/{player.explosionThreshold} · {player.bag.length} ingredients remain</small></div>}
-    <div className="decision-options">
-      {pending.options.map((option,index)=><button key={option} className={option === "DRAW" ? "button-primary" : "button-secondary"} onClick={()=>onChoose(option)} autoFocus={index===0}>
-        <span>{optionLabel(option,game)}</span>{option === "DRAW" && <small>Reveal one unknown ingredient</small>}
-      </button>)}
-    </div>
-  </section>;
+function PurchaseDecision({pending,game,onChoose}:{pending:PendingDecision;game:GameState;onChoose:(choice:string)=>void}) {
+  const [selected,setSelected]=useState("none");useEffect(()=>setSelected("none"),[pending.id]);const budget=game.players.human.roundCoins;
+  return <section className="purchase-decision"><div className="decision-heading"><span className="eyebrow">Market phase</span><h2>You have {budget} buying power</h2><p>Select one legal basket. You may buy up to two ingredients of different colors.</p></div><div className="basket-grid">{pending.options.map(option=><button key={option} className={selected===option?"basket selected":"basket"} onClick={()=>setSelected(option)}><span>{optionLabel(option,game)}</span><b>{purchaseCost(option)} / {budget}</b></button>)}</div><div className="purchase-total"><span>Selected total <b>{purchaseCost(selected)} coins</b></span><button className="button-primary" onClick={()=>onChoose(selected)}>Confirm purchase</button></div></section>;
 }
 
-function RoundRail({ round }: { round: number }) {
-  return <div className="round-rail" aria-label={`Round ${round} of 9`}>
-    {Array.from({length:9},(_,index)=>index+1).map((value)=><span key={value} className={value<round?"round-done":value===round?"round-current":""}><b>{value}</b>{value===2&&<small>Y</small>}{value===3&&<small>P</small>}{value===6&&<small>+</small>}</span>)}
-  </div>;
+function DecisionPanel({pending,game,onChoose}:{pending:PendingDecision;game:GameState;onChoose:(choice:string)=>void}) {
+  if(pending.kind==="PURCHASE")return <PurchaseDecision pending={pending} game={game} onChoose={onChoose}/>;
+  const brewing=pending.kind==="BREW_ACTION"||pending.kind==="ROUND9_COMMIT";
+  const purpleCount=Number(pending.data.count??0);
+  return <section className={`decision-card${brewing?" brewing-guidance":""}`} id="decision" aria-labelledby="decision-title"><div className="decision-kicker"><span className="pulse-dot"/> Your turn / {titleCase(pending.kind)}</div><h2 id="decision-title">{brewing?(pending.kind==="ROUND9_COMMIT"?"Draw another ingredient or stop, secretly.":"Draw another ingredient or stop brewing."):pending.prompt}</h2><p>{DECISION_CONTEXT[pending.kind]}</p>{pending.kind==="PURPLE_TIER"&&<div className="purple-rewards" aria-label={`${purpleCount} purple ingredients`}><div className={purpleCount===1?"current":""}><b>1 Purple</b><span>+1 victory point</span></div><div className={purpleCount===2?"current":""}><b>2 Purple</b><span>+1 victory point and +1 ruby</span></div><div className={purpleCount>=3?"current":""}><b>3+ Purple</b><span>+2 victory points and droplet +1</span></div></div>}{!brewing&&<div className="decision-options">{pending.options.map((option,index)=><button key={option} className="button-secondary" onClick={()=>onChoose(option)} autoFocus={index===0}><span>{optionLabel(option,game)}</span>{pending.kind==="PURPLE_TIER"&&<small>{option.startsWith("tier:3")?"Best available reward":"Choose a lower reward if preferred"}</small>}</button>)}</div>}</section>;
 }
 
-function GameLog({ game }: { game: GameState }) {
-  const entries = game.log.slice(-18).reverse();
-  return <section className="log-card" aria-labelledby="log-title"><div className="section-title"><span className="eyebrow">Ledger</span><h2 id="log-title">Brew log</h2></div><ol aria-live="polite">
-    {entries.map((entry)=><li key={entry.eventId}><span>{entry.seq+1}</span><div><b>{titleCase(entry.type)}</b><small>{entry.actor ? `${entry.actor === "human" ? "You" : "Rival"} · ` : ""}{Object.entries(entry.publicPayload).map(([key,value])=>`${titleCase(key)} ${String(value)}`).join(" · ")}</small></div></li>)}
-  </ol></section>;
+function ControlShelf({game,bagOpen,bagEnabled,onBag,onChoose,aiStatus}:{game:GameState;bagOpen:boolean;bagEnabled:boolean;onBag:()=>void;onChoose:(choice:string)=>void;aiStatus:string}) {
+  const player=game.players.human;const pending=game.pendingDecision;const brew=pending?.actor==="human"&&(pending.kind==="BREW_ACTION"||pending.kind==="ROUND9_COMMIT");
+  return <section className="control-shelf" aria-label="Player controls"><button className={bagOpen?"shelf-item active":"shelf-item"} onClick={onBag} disabled={!bagEnabled} title={bagEnabled?"Show current bag composition":"Enable bag composition in settings"}><GameIcon name="bag"/><span>Bag<b>{bagEnabled?`${player.bag.length} ingredients`:"Composition hidden"}</b></span></button><div className="shelf-item"><GameIcon name="flask"/><span>Flask<b>{player.flaskFull?"Ready":"Empty"}</b></span></div><div className="shelf-item"><GameIcon name="ruby"/><span>Rubies<b>{player.rubies}</b></span></div><div className="shelf-actions">{brew?<>{pending.options.includes("USE_FLASK")&&<button className="shelf-flask" onClick={()=>onChoose("USE_FLASK")}><GameIcon name="flask"/>Use flask</button>}{pending.options.includes("DRAW")&&<button className="draw-action" onClick={()=>onChoose("DRAW")}><GameIcon name="bag"/>Draw ingredient</button>}{pending.options.includes("STOP")&&<button className="stop-action" onClick={()=>onChoose("STOP")}><GameIcon name="stop"/>Stop brewing</button>}</>:<span className="shelf-message">{pending?.actor==="ai"?aiStatus:pending?.actor==="human"?"Complete the choice shown above.":game.phase==="GAME_OVER"?"Festival complete.":"Resolving the round..."}</span>}</div></section>;
 }
+
+function CompactScoreTrack({game}:{game:GameState}) {
+  const marker=(score:number)=>Math.min(100,(score%50)/50*100);
+  return <div className="compact-score" aria-label={`Score: you ${game.players.human.score}, AI ${game.players.ai.score}`}><div className="compact-score-labels"><span>0</span><span>10</span><span>20</span><span>30</span><span>40</span><span>50</span></div><div className="compact-score-line"><i className="compact-marker human" style={{left:`${marker(game.players.human.score)}%`}} aria-label={`You: ${game.players.human.score}`}>Y</i><i className="compact-marker ai" style={{left:`${marker(game.players.ai.score)}%`}} aria-label={`AI: ${game.players.ai.score}`}>A</i></div><div className="compact-score-values"><b>You {game.players.human.score}</b><b>AI {game.players.ai.score}</b></div></div>;
+}
+
+function SharedBar({game,fortuneOpen,onFortune}:{game:GameState;fortuneOpen:boolean;onFortune:()=>void}) {
+  const fortune=FORTUNE_CARDS.find(card=>card.id===game.activeFortune);return <section className="shared-bar"><div className="round-pill"><GameIcon name="round"/><span>Round<b>{game.round} / 9</b></span></div><CompactScoreTrack game={game}/><div className="rat-summary"><GameIcon name="rat"/><span>Rat tails<b>+{game.roundState.ratTails.human}</b></span></div>{fortune?<button className="fortune-summary" onClick={onFortune} aria-expanded={fortuneOpen}><GameIcon name="fortune"/><span>Current fortune<b>{fortune.title}</b></span><i>{fortuneOpen?"Hide":"Read"}</i></button>:<div className="fortune-summary"><GameIcon name="fortune"/><span>Current fortune<b>Resolving...</b></span></div>}</section>;
+}
+
+function FortunePanel({game}:{game:GameState}) {const fortune=FORTUNE_CARDS.find(card=>card.id===game.activeFortune);if(!fortune)return null;return <section className="fortune-panel"><div className="fortune-seal"><GameIcon name="fortune" size={32}/></div><div><span className="eyebrow">{fortune.timing==="ROUND"?"Active this round":"Immediate effect"}</span><h2>{fortune.title}</h2><p>{FORTUNE_COPY[fortune.id]}</p>{fortune.timing==="ROUND"&&<span className="active-reminder"><GameIcon name="spark" size={16}/>Fortune effect active</span>}</div></section>}
+
+function ScoreTrack({game}:{game:GameState}) {return <section className="detail-card"><header><span className="eyebrow">City square</span><h2>Score procession</h2></header><div className="score-track">{Array.from({length:50},(_,i)=>i+1).map(score=>{const human=((game.players.human.score-1)%50)+1===score&&game.players.human.score>0;const ai=((game.players.ai.score-1)%50)+1===score&&game.players.ai.score>0;return <span key={score} className={`score-space${RAT_BOUNDARIES.includes(score as never)?" rat-boundary":""}`} title={`${score} points`}>{(score===1||score%5===0)&&<small>{score}</small>}{human&&<i className="score-human">Y</i>}{ai&&<i className="score-ai">A</i>}</span>})}</div></section>}
+
+function Market({game,onChoose}:{game:GameState;onChoose:(choice:string)=>void}) {const observation=observe(game,"human");const purchase=game.pendingDecision?.actor==="human"&&game.pendingDecision.kind==="PURCHASE"?game.pendingDecision:undefined;return <section className="detail-card market-panel"><header><span className="eyebrow">Ingredient quarter</span><h2>Market and rule books</h2></header>{purchase&&<PurchaseDecision pending={purchase} game={game} onChoose={onChoose}/>}<div className="market-grid">{COLOR_ORDER.map(color=>{const meta=INGREDIENT_META[color],locked=game.round<UNLOCK_ROUND[color],prices=PRICE_BOOK[color]??{};return <article key={color} className={`market-item ingredient-border-${color}${locked?" market-locked":""}`}><div className="market-name"><span className={`market-symbol ingredient-${color}`}>{meta.symbol}</span><div><b>{meta.name}</b><small>{locked?`Unlocks in round ${UNLOCK_ROUND[color]}`:meta.note}</small></div></div><div className="market-prices">{Object.entries(prices).map(([value,cost])=><span key={value}><b>Value {value}</b><small>{cost} coins / {observation.supplyCounts[`${color}:${value}`]??0} left</small></span>)}</div></article>})}</div></section>}
+
+function GameLog({game}:{game:GameState}) {return <section className="detail-card"><header><span className="eyebrow">Cause and effect</span><h2>Brew log</h2></header><ol className="game-log" aria-live="polite">{game.log.slice(-22).reverse().map(entry=><li key={entry.eventId}><span>{entry.seq+1}</span><div><b>{titleCase(entry.type)}</b><small>{entry.actor?`${entry.actor==="human"?"You":"Rival"} / `:""}{Object.entries(entry.publicPayload).map(([k,v])=>`${titleCase(k)} ${String(v)}`).join(" / ")}</small></div></li>)}</ol></section>}
+
+function SettingsPanel({settings,onChange}:{settings:Settings;onChange:(value:Settings)=>void}) {const toggle=(key:keyof Settings)=>(event:React.ChangeEvent<HTMLInputElement>)=>onChange({...settings,[key]:event.target.checked});return <section className="detail-card settings-panel"><header><span className="eyebrow">Display and pace</span><h2>Game settings</h2></header><label><input type="checkbox" checked={settings.showBag} onChange={toggle("showBag")}/>Show bag composition</label><label><input type="checkbox" checked={settings.showAIDetails} onChange={toggle("showAIDetails")}/>Show detailed AI reasoning</label><label><input type="checkbox" checked={settings.showRisk} onChange={toggle("showRisk")}/>Show explosion probability</label><label><input type="checkbox" checked={settings.reducedMotion} onChange={toggle("reducedMotion")}/>Reduced motion</label><label><input type="checkbox" checked={settings.fastAI} onChange={toggle("fastAI")}/>Fast animations</label><label><input type="checkbox" checked={settings.highContrast} onChange={toggle("highContrast")}/>High contrast</label></section>}
+
+function readableAction(entry:GameLogEntry,game:GameState):string {
+  const actor=entry.actor==="ai"?"AI":"You";
+  if(entry.type==="TOKEN_PLACED")return `${actor} drew ${titleCase(String(entry.publicPayload.color??"ingredient"))} ${String(entry.publicPayload.value??"")}`;
+  if(entry.type==="PLAYER_STOPPED")return `${actor} stopped brewing`;
+  if(entry.type==="FLASK_USED")return `${actor} used the flask`;
+  if(entry.type==="POT_EXPLODED")return `${actor}'s pot exploded`;
+  if(entry.type==="TOKEN_GAINED")return `${actor} gained ${titleCase(String(entry.publicPayload.color??"ingredient"))} ${String(entry.publicPayload.value??"")}`;
+  if(entry.type==="DIE_ROLLED")return `${actor} rolled ${titleCase(String(entry.publicPayload.face??"the die"))}`;
+  const choice=String(entry.publicPayload.choice??"");
+  if(entry.type==="DECISION_RESOLVED"&&choice)return `${actor}: ${optionLabel(choice,game)}`;
+  return `${actor}: ${titleCase(entry.type)}`;
+}
+
+function AIBoard({game,aiStatus,aiReport,showDetails,onInspect}:{game:GameState;aiStatus:string;aiReport?:AIDecisionReport&{latencyMs:number};showDetails:boolean;onInspect:(token:Token)=>void}) {
+  const ai=game.players.ai;const data=scoringData(ai);const actions=game.log.filter(entry=>entry.actor==="ai"&&["TOKEN_PLACED","PLAYER_STOPPED","FLASK_USED","POT_EXPLODED","TOKEN_GAINED","DIE_ROLLED"].includes(entry.type)).slice(-5).reverse();
+  return <aside className="ai-board panel-frame" aria-label="AI board"><header className="board-strip"><div><span className="eyebrow">Alchemist AI</span><h2>Rival cauldron</h2></div>{game.pendingDecision?.actor==="ai"&&<span className="ai-status-pill"><GameIcon name="ai" size={16}/>{aiStatus}</span>}</header><div className="ai-board-body"><div className="ai-status-rail"><Resource icon="vp" label="Victory points" value={ai.score}/><Resource icon="explosion" label="White risk" value={`${ai.whiteTotal} / ${ai.explosionThreshold}`}/><Resource icon="ruby" label="Rubies" value={ai.rubies}/><Resource icon="flask" label="Flask" value={ai.flaskFull?"Ready":"Used"}/><Resource icon="round" label="Position" value={data.anchor}/></div><PotBoard player={ai} tokens={game.tokens} compact onInspect={onInspect}/></div><section className="ai-actions"><header><span>AI last actions</span>{aiReport&&<small>{aiReport.latencyMs}ms decision</small>}</header>{actions.length?<ol>{actions.map(entry=><li key={entry.eventId}>{readableAction(entry,game)}</li>)}</ol>:<p>No actions yet.</p>}{showDetails&&aiReport&&<div className="ai-reason"><b>Decision summary</b>{aiReport.summary}</div>}</section></aside>;
+}
+
+function Modal({title,eyebrow,children,onClose,wide=false}:{title:string;eyebrow:string;children:React.ReactNode;onClose:()=>void;wide?:boolean}) {return <div className="modal-backdrop" onMouseDown={onClose}><section className={`modal-card${wide?" modal-wide":""}`} onMouseDown={event=>event.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" onClick={onClose} aria-label="Close dialog">x</button><span className="eyebrow">{eyebrow}</span><h2 id="modal-title">{title}</h2>{children}</section></div>}
+
+function HelpModal({onClose}:{onClose:()=>void}) {return <Modal title="How to brew" eyebrow="Apothecary handbook" onClose={onClose} wide><div className="help-grid"><article><GameIcon name="bag"/><h3>Draw from the live bag</h3><p>Each draw randomly samples the ingredients currently in your bag. The token advances around your pot by its value.</p></article><article><GameIcon name="explosion"/><h3>Watch the white total</h3><p>White ingredients add explosion load. Exceed your threshold and you must give up either victory points or shopping coins.</p></article><article><GameIcon name="stop"/><h3>Stop to bank the space</h3><p>Stop while the reward is worthwhile. Your next open space determines coins, points, and sometimes a ruby.</p></article><article><GameIcon name="coin"/><h3>Improve your bag</h3><p>Spend coins on up to two ingredients of different colours. Their rule text is always visible in the market below.</p></article><article><GameIcon name="flask"/><h3>Use the flask carefully</h3><p>After drawing a white ingredient, the flask can return it to the live bag. A returned token can be drawn again immediately.</p></article><article><GameIcon name="rat"/><h3>Rat tails help the chaser</h3><p>The brewer behind on score begins farther around the pot. Round nine hides both final draw-or-stop commitments.</p></article></div></Modal>}
+
+function RoundSummary({summary,onContinue}:{summary:RoundSummaryData;onContinue:()=>void}) {return <Modal title={`Round ${summary.round} complete`} eyebrow="Night market closes" onClose={onContinue}><div className="round-summary-grid"><div><span>You</span><b>+{summary.humanScore} VP</b><small>{summary.humanRubies>=0?"+":""}{summary.humanRubies} rubies</small></div><div><span>Rival</span><b>+{summary.aiScore} VP</b><small>{summary.aiRubies>=0?"+":""}{summary.aiRubies} rubies</small></div></div><p className="summary-rats">Next round rat tails: <b>You +{summary.nextHumanRats}</b> / <b>Rival +{summary.nextAiRats}</b></p><button className="button-primary summary-continue" onClick={onContinue}>Begin round {summary.round+1}</button></Modal>}
+
+function FeedbackToast({toast,onClose}:{toast:ToastData;onClose:()=>void}) {return <div className={`feedback-toast toast-${toast.tone}`} role="status"><GameIcon name={toast.tone==="warning"?"explosion":toast.tone==="good"?"spark":"round"}/><div><b>{toast.title}</b><span>{toast.body}</span></div><button onClick={onClose} aria-label="Dismiss notification">x</button></div>}
+
+function InspectCard({token,onClose}:{token:Token;onClose:()=>void}) {const price=PRICE_BOOK[token.color]?.[token.value];return <section className="inspect-popover" role="dialog" aria-label="Ingredient tooltip"><button className="close-button" onClick={onClose} aria-label="Close ingredient details">x</button><div className="inspect-token"><IngredientChip token={token}/></div><span className="eyebrow">Ingredient inspection</span><h2>{INGREDIENT_META[token.color].name} {token.value}</h2><p><b>Movement</b> {token.value} space{token.value===1?"":"s"} before modifiers.</p><p><b>Effect</b> {INGREDIENT_META[token.color].note}.</p><p><b>Market</b> {price===undefined?"Not purchasable.":`${price} coins.`}</p></section>}
+
+function BonusDieEvent({entry,onClose}:{entry:GameLogEntry;onClose:()=>void}) {const face=String(entry.publicPayload.face??"");const rewards:Record<string,string>={vp1:"+1 victory point",vp2:"+2 victory points",ruby:"+1 ruby",droplet:"Droplet advances",orange:"+1 pumpkin"};return <div className="event-toast" role="status"><div className="die-face">{face==="ruby"?"R":face==="droplet"?"D":face.startsWith("vp")?face.slice(2):"P"}</div><div><span className="eyebrow">Bonus die</span><h2>{entry.actor==="human"?"You brewed the strongest eligible potion.":"The rival brewed the strongest eligible potion."}</h2><p>Reward: <b>{rewards[face]??titleCase(face)}</b></p></div><button onClick={onClose} aria-label="Dismiss bonus die result">x</button></div>}
+
+function HomeScreen({hasSave,seed,setSeed,settings,setSettings,onNew,onContinue,onImport,onHelp,fileRef}:{hasSave:boolean;seed:string;setSeed:(v:string)=>void;settings:Settings;setSettings:(v:Settings)=>void;onNew:()=>void;onContinue:()=>void;onImport:(file:File)=>void;onHelp:()=>void;fileRef:React.RefObject<HTMLInputElement|null>}) {return <main className="home-screen"><section className="home-hero"><div className="home-emblem"><GameIcon name="flask" size={54}/></div><span className="eyebrow">A deterministic apothecary game</span><h1>Cauldron <i>&</i> Chance</h1><p>Brew recklessly. Read the bag. Try not to explode.</p><div className="home-actions"><button className="button-primary" onClick={onNew}>New game</button><button className="button-secondary" onClick={onContinue} disabled={!hasSave}>Continue game</button></div></section><section className="home-settings"><div><span className="eyebrow">Game settings</span><h2>Prepare your workbench</h2></div><dl><div><dt>Opponent</dt><dd><GameIcon name="ai"/>Strong AI</dd></div><div><dt>Ingredient set</dt><dd><GameIcon name="spark"/>Set 1</dd></div></dl><label className="seed-field"><span>Game seed</span><input value={seed} onChange={e=>setSeed(e.target.value)}/></label><SettingsPanel settings={settings} onChange={setSettings}/><div className="home-utility"><button onClick={()=>fileRef.current?.click()}>Import replay</button><button onClick={onHelp}>How to play</button></div><input ref={fileRef} className="visually-hidden" type="file" accept="application/json" onChange={e=>{const file=e.target.files?.[0];if(file)onImport(file)}}/></section></main>}
 
 export function App() {
-  const [game, setGame] = useState<GameState>(loadGame);
-  const [choices, setChoices] = useState<string[]>([]);
-  const [settings, setSettings] = useState<Settings>(loadSettings);
-  const [seedInput, setSeedInput] = useState(game.config.seed);
-  const [aiStatus, setAiStatus] = useState("ready");
-  const [aiReport, setAiReport] = useState<(AIDecisionReport & { latencyMs: number }) | undefined>();
-  const [notice, setNotice] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
-  const workerRef = useRef<Worker | null>(null);
-  const gameRef = useRef(game);
-  gameRef.current = game;
+  const [game,setGame]=useState<GameState>(loadGame);const [choices,setChoices]=useState<string[]>([]);const [settings,setSettings]=useState<Settings>(loadSettings);const [screen,setScreen]=useState<"home"|"game">(DEBUG_STATE&&DEBUG_STATE!=="home"?"game":"home");const [seedInput,setSeedInput]=useState(game.config.seed);const [aiStatus,setAiStatus]=useState(DEBUG_STATE==="ai-brewing"?"Evaluating the live bag...":"Ready");const [aiReport,setAiReport]=useState<(AIDecisionReport&{latencyMs:number})>();const [notice,setNotice]=useState("");const [fortuneOpen,setFortuneOpen]=useState(DEBUG_STATE==="fortune");const [bagOpen,setBagOpen]=useState(DEBUG_STATE==="ingredients");const [helpOpen,setHelpOpen]=useState(false);const [settingsOpen,setSettingsOpen]=useState(false);const [roundSummary,setRoundSummary]=useState<RoundSummaryData|undefined>(DEBUG_STATE==="round-summary"?{round:5,humanScore:4,aiScore:3,humanRubies:1,aiRubies:0,nextHumanRats:0,nextAiRats:1}:undefined);const [toast,setToast]=useState<ToastData|undefined>(DEBUG_STATE==="toast"?{id:999,tone:"good",title:"Potion brewed",body:"You gained 2 victory points and a ruby."}:undefined);const [inspected,setInspected]=useState<Token|undefined>(DEBUG_STATE==="tooltip"?game.tokens[game.players.human.pot[0]?.tokenId??""]:undefined);const [dismissedDie,setDismissedDie]=useState(-1);const fileRef=useRef<HTMLInputElement>(null);const workerRef=useRef<Worker|null>(null);const gameRef=useRef(game);const roundStartRef=useRef({round:game.round,humanScore:game.players.human.score,aiScore:game.players.ai.score,humanRubies:game.players.human.rubies,aiRubies:game.players.ai.rubies});const lastToastSeq=useRef(game.log.at(-1)?.seq??-1);gameRef.current=game;
 
-  const resolveChoice = useCallback((choice: string) => {
-    setGame((current) => {
-      const pending = current.pendingDecision;
-      if (!pending || !pending.options.includes(choice)) return current;
-      setChoices((history) => [...history, choice]);
-      return dispatch(current, { type: "RESOLVE_DECISION", decisionId: pending.id, choice });
-    });
-  }, []);
+  const resolveChoice=useCallback((choice:string)=>setGame(current=>{const pending=current.pendingDecision;if(!pending||!pending.options.includes(choice))return current;setChoices(history=>[...history,choice]);const next=dispatch(current,{type:"RESOLVE_DECISION",decisionId:pending.id,choice});if(next.round>current.round){const start=roundStartRef.current;setRoundSummary({round:current.round,humanScore:next.players.human.score-start.humanScore,aiScore:next.players.ai.score-start.aiScore,humanRubies:next.players.human.rubies-start.humanRubies,aiRubies:next.players.ai.rubies-start.aiRubies,nextHumanRats:next.roundState.ratTails.human,nextAiRats:next.roundState.ratTails.ai});roundStartRef.current={round:next.round,humanScore:next.players.human.score,aiScore:next.players.ai.score,humanRubies:next.players.human.rubies,aiRubies:next.players.ai.rubies}}return next}),[]);
+  useEffect(()=>{const worker=new Worker(new URL("./ai.worker.ts",import.meta.url),{type:"module"});workerRef.current=worker;worker.onmessage=(event:MessageEvent<{decisionId:string;report?:AIDecisionReport;latencyMs?:number;error?:string}>)=>{const current=gameRef.current;if(current.pendingDecision?.id!==event.data.decisionId||current.pendingDecision.actor!=="ai")return;if(event.data.error||!event.data.report){setAiStatus("AI needs attention");setNotice(event.data.error??"The AI returned no action.");return}setAiReport({...event.data.report,latencyMs:event.data.latencyMs??0});setAiStatus(event.data.report.summary);window.setTimeout(()=>resolveChoice(event.data.report!.choice),settings.fastAI||settings.reducedMotion?0:420)};return()=>worker.terminate()},[resolveChoice,settings.fastAI,settings.reducedMotion]);
+  useEffect(()=>{const pending=game.pendingDecision;if(DEBUG_STATE||screen!=="game"||roundSummary||pending?.actor!=="ai"||!workerRef.current)return;setAiStatus("Weighing risk...");workerRef.current.postMessage({observation:observe(game,"ai"),pending,seed:`${game.config.seed}/ai/ai`})},[screen,roundSummary,game.revision,game.pendingDecision?.id,game.config.seed]);
+  useEffect(()=>localStorage.setItem(SAVE_KEY,JSON.stringify({version:1,state:serialize(game),choices})),[game,choices]);useEffect(()=>localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)),[settings]);
+  useEffect(()=>{const entry=game.log.at(-1);if(!entry||entry.seq<=lastToastSeq.current)return;lastToastSeq.current=entry.seq;const actor=entry.actor==="human"?"You":"The rival";let next:ToastData|undefined;if(entry.type==="POT_EXPLODED")next={id:entry.seq,tone:"warning",title:"The cauldron erupted",body:`${actor} crossed the white-token threshold.`};if(entry.type==="WHITE_REPRIEVED")next={id:entry.seq,tone:"good",title:"A narrow reprieve",body:"The white ingredient returned to the live bag."};if(entry.type==="FLASK_USED")next={id:entry.seq,tone:"info",title:"Flask used",body:`${actor} returned the last white ingredient.`};if(entry.type==="TOKEN_GAINED")next={id:entry.seq,tone:"good",title:"Bag improved",body:`${actor} gained a new ingredient.`};if(next){setToast(next);const timer=window.setTimeout(()=>setToast(current=>current?.id===next.id?undefined:current),3300);return()=>window.clearTimeout(timer)}},[game.log]);
 
-  useEffect(() => {
-    const worker = new Worker(new URL("./ai.worker.ts", import.meta.url), { type: "module" });
-    workerRef.current = worker;
-    worker.onmessage = (event: MessageEvent<{decisionId:string;report?:AIDecisionReport;latencyMs?:number;error?:string}>) => {
-      const current = gameRef.current;
-      if (current.pendingDecision?.id !== event.data.decisionId || current.pendingDecision.actor !== "ai") return;
-      if (event.data.error || !event.data.report) {
-        setAiStatus("needs attention"); setNotice(event.data.error ?? "The AI worker returned no action."); return;
-      }
-      setAiReport({...event.data.report,latencyMs:event.data.latencyMs??0});
-      setAiStatus(event.data.report.summary);
-      const delay = settings.fastAI || settings.reducedMotion ? 0 : 420;
-      window.setTimeout(() => resolveChoice(event.data.report!.choice), delay);
-    };
-    return () => worker.terminate();
-  }, [resolveChoice, settings.fastAI, settings.reducedMotion]);
+  const observation=useMemo(()=>observe(game,"human"),[game]);const risk=useMemo(()=>exactExplosionProbability(observation,"human"),[observation]);const dieEvent=[...game.log].reverse().find(entry=>entry.type==="DIE_ROLLED"&&entry.seq>dismissedDie);
+  const establishRoundStart=(next:GameState)=>{roundStartRef.current={round:next.round,humanScore:next.players.human.score,aiScore:next.players.ai.score,humanRubies:next.players.human.rubies,aiRubies:next.players.ai.rubies};lastToastSeq.current=next.log.at(-1)?.seq??-1;setRoundSummary(undefined)};
+  const newGame=()=>{const seed=seedInput.trim()||freshSeed();const next=createGame({seed});establishRoundStart(next);setGame(next);setChoices([]);setNotice("");setSeedInput(seed);setScreen("game")};
+  const exportReplay=()=>{const data=JSON.stringify({version:1,seed:game.config.seed,choices,state:serialize(game)},null,2);const link=document.createElement("a");link.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));link.download=`cauldron-${game.config.seed}.json`;link.click();URL.revokeObjectURL(link.href)};
+  const importReplay=async(file:File)=>{try{const data=JSON.parse(await file.text()) as{state?:string;choices?:string[]};if(!data.state)throw new Error("This file has no saved game state.");const loaded=deserialize(data.state);establishRoundStart(loaded);setGame(loaded);setChoices(data.choices??[]);setSeedInput(loaded.config.seed);setScreen("game");setNotice("Replay loaded.")}catch(error){setNotice(error instanceof Error?error.message:"Could not load this replay.")}};
+  const winner=game.result?(game.result.winners.length===2?"A shared victory":game.result.winners[0]==="human"?"You won the festival":"The rival won this time"):"";
+  const classes=`app-shell${settings.highContrast?" high-contrast":""}${settings.reducedMotion?" reduced-motion":""}`;
+  if(screen==="home")return <div className={classes}><HomeScreen hasSave={localStorage.getItem(SAVE_KEY)!==null} seed={seedInput} setSeed={setSeedInput} settings={settings} setSettings={setSettings} onNew={newGame} onContinue={()=>setScreen("game")} onImport={file=>void importReplay(file)} onHelp={()=>setHelpOpen(true)} fileRef={fileRef}/>{helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)}/>}</div>;
 
-  useEffect(() => {
-    const pending = game.pendingDecision;
-    if (pending?.actor !== "ai" || !workerRef.current) return;
-    setAiStatus("weighing risk…");
-    workerRef.current.postMessage({ observation: observe(game,"ai"), pending, seed: `${game.config.seed}/ai/ai` });
-  }, [game.revision, game.pendingDecision?.id, game.config.seed]);
-
-  useEffect(() => {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({version:1,state:serialize(game),choices}));
-  }, [game, choices]);
-  useEffect(() => localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings)), [settings]);
-
-  const humanObservation = useMemo(() => observe(game,"human"), [game]);
-  const risk = useMemo(() => exactExplosionProbability(humanObservation,"human"), [humanObservation]);
-  const fortune = FORTUNE_CARDS.find((card)=>card.id===game.activeFortune);
-
-  const startNewGame = () => {
-    if (game.revision > 0 && game.phase !== "GAME_OVER" && !window.confirm("Abandon this brew and begin a new game?")) return;
-    const seed = seedInput.trim() || freshSeed();
-    setChoices([]); setAiReport(undefined); setNotice(""); setGame(createGame({seed})); setSeedInput(seed);
-  };
-
-  const brewAnother = () => {
-    const seed = freshSeed();
-    setSeedInput(seed); setChoices([]); setAiReport(undefined); setNotice(""); setGame(createGame({seed}));
-  };
-
-  const exportReplay = () => {
-    const data = JSON.stringify({version:1,seed:game.config.seed,choices,state:serialize(game)},null,2);
-    const link=document.createElement("a");link.href=URL.createObjectURL(new Blob([data],{type:"application/json"}));link.download=`cauldron-${game.config.seed}.json`;link.click();URL.revokeObjectURL(link.href);
-  };
-
-  const importReplay = async (file: File) => {
-    try {
-      const data=JSON.parse(await file.text()) as {state?:string;choices?:string[]};
-      if(!data.state)throw new Error("This file has no saved game state.");
-      const loaded=deserialize(data.state);setGame(loaded);setChoices(data.choices??[]);setSeedInput(loaded.config.seed);setNotice("Replay loaded.");
-    } catch(error) { setNotice(error instanceof Error?error.message:"Could not load this replay."); }
-  };
-
-  const winnerText = game.result ? (game.result.winners.length===2?"A shared victory":game.result.winners[0]==="human"?"You won the festival":"The rival won this time") : "";
-
-  return <div className={`${settings.highContrast?"high-contrast ":""}${settings.reducedMotion?"reduced-motion":""}`}>
-    <a href="#decision" className="skip-link">Skip to current decision</a>
-    <header className="app-header">
-      <div className="brand"><span className="brand-mark" aria-hidden="true">C</span><div><span>QUEDLINBURG · NIGHT MARKET</span><h1>Cauldron <i>&</i> Chance</h1></div></div>
-      <div className="game-tools">
-        <label><span>Game seed</span><input value={seedInput} onChange={(e)=>setSeedInput(e.target.value)} aria-label="Game seed"/></label>
-        <button onClick={startNewGame}>New game</button><button onClick={exportReplay}>Export</button><button onClick={()=>fileRef.current?.click()}>Import</button>
-        <input ref={fileRef} className="visually-hidden" type="file" accept="application/json" onChange={(e)=>{const file=e.target.files?.[0];if(file)void importReplay(file);}}/>
-      </div>
-    </header>
-
-    <main>
-      <section className="status-ribbon">
-        <div><span className="eyebrow">Round {game.round} of 9</span><strong>{titleCase(game.phase)}</strong></div>
-        <RoundRail round={game.round}/>
-        <div className="start-player"><span>First flask</span><b>{game.startPlayerId === "human" ? "You" : "Rival"}</b></div>
-      </section>
-
-      {notice && <div className="notice" role="status">{notice}<button aria-label="Dismiss notice" onClick={()=>setNotice("")}>×</button></div>}
-
-      {fortune && <section className="fortune-card"><div className="fortune-orbit" aria-hidden="true">✦</div><div><span className="eyebrow">Fortune {fortune.timing === "ROUND" ? "· lasts this round" : "· immediate"}</span><h2>{fortune.title}</h2><p>{FORTUNE_COPY[fortune.id]}</p></div><span className="fortune-id">{fortune.id}</span></section>}
-
-      {game.phase === "GAME_OVER" && game.result && <section className="end-card" aria-labelledby="end-title"><span className="eyebrow">The ninth brew is complete</span><h2 id="end-title">{winnerText}</h2><p><b>{game.result.scores.human}</b> points to <b>{game.result.scores.ai}</b>. Final pot distances: {game.result.tieBreakIndices.human} and {game.result.tieBreakIndices.ai}.</p><div><button className="button-primary" onClick={brewAnother}>Brew another game</button><button className="button-secondary" onClick={exportReplay}>Save this replay</button></div><small>Seed · {game.config.seed}</small></section>}
-
-      <div className="game-grid">
-        <section className="human-panel panel">
-          <PlayerStats player={game.players.human} label="Human brewer"/>
-          <div className="human-workbench">
-            <PotBoard player={game.players.human} tokens={game.tokens}/>
-            <div className="bench-side">
-              <div className="mini-card"><span className="eyebrow">Known ingredients</span><BagLedger player={game.players.human} tokens={game.tokens}/></div>
-              <div id="decision">{game.pendingDecision?.actor === "human" ? <DecisionCard pending={game.pendingDecision} game={game} risk={settings.showRisk?risk:undefined} onChoose={resolveChoice}/> : <div className="waiting-card"><span className="waiting-rings"/><h2>{game.phase === "GAME_OVER" ? "Festival complete" : "The rival is deciding"}</h2><p>{game.phase === "GAME_OVER" ? "Start a new seeded game or export this replay." : aiStatus}</p></div>}</div>
-            </div>
-          </div>
-        </section>
-
-        <aside className="shared-column">
-          <ScoreTrack game={game}/>
-          <section className="settings-card"><div className="section-title"><span className="eyebrow">Comfort</span><h2>Display settings</h2></div>
-            <label><input type="checkbox" checked={settings.showRisk} onChange={(e)=>setSettings({...settings,showRisk:e.target.checked})}/> Show risk percentage</label>
-            <label><input type="checkbox" checked={settings.reducedMotion} onChange={(e)=>setSettings({...settings,reducedMotion:e.target.checked})}/> Reduced motion</label>
-            <label><input type="checkbox" checked={settings.fastAI} onChange={(e)=>setSettings({...settings,fastAI:e.target.checked})}/> Skip AI pause</label>
-            <label><input type="checkbox" checked={settings.highContrast} onChange={(e)=>setSettings({...settings,highContrast:e.target.checked})}/> High contrast</label>
-          </section>
-          {aiReport && <section className="ai-note"><span className="eyebrow">Last AI thought · {aiReport.latencyMs} ms</span><p>{aiReport.summary}</p></section>}
-        </aside>
-
-        <section className="ai-panel panel">
-          <PlayerStats player={game.players.ai} label="Monte Carlo AI" thinking={game.pendingDecision?.actor==="ai"?aiStatus:undefined}/>
-          <PotBoard player={game.players.ai} tokens={game.tokens} compact/>
-          <div className="mini-card"><span className="eyebrow">Public bag record</span><BagLedger player={game.players.ai} tokens={game.tokens} hiddenLabel/></div>
-        </section>
-      </div>
-
-      <div className="lower-grid"><Market game={game}/><GameLog game={game}/></div>
-    </main>
-    <footer><span>Deterministic rules engine · Monte Carlo policy v1</span><span>Seed {game.config.seed} · revision {game.revision}</span></footer>
-  </div>;
+  return <div className={classes}><a href="#decision" className="skip-link">Skip to current decision</a><header className="game-header"><button className="brand-button" onClick={()=>setScreen("home")}><span className="brand-mark">C</span><span>Cauldron <i>&</i> Chance<small>Night market / seeded game</small></span></button><div className="header-tools"><button onClick={()=>setHelpOpen(true)}>Help</button><button onClick={()=>setSettingsOpen(true)}>Settings</button><button onClick={()=>setScreen("home")}>Home</button><button onClick={exportReplay}>Export</button><button onClick={()=>fileRef.current?.click()}>Import</button><input ref={fileRef} className="visually-hidden" type="file" accept="application/json" onChange={e=>{const file=e.target.files?.[0];if(file)void importReplay(file)}}/></div></header>
+    <main className="game-main">
+      <SharedBar game={game} fortuneOpen={fortuneOpen} onFortune={()=>setFortuneOpen(value=>!value)}/>
+      {fortuneOpen&&<FortunePanel game={game}/>} {/* shared-board detail */}
+      {notice&&<div className="notice" role="status">{notice}<button onClick={()=>setNotice("")} aria-label="Dismiss">x</button></div>}
+      {game.phase==="GAME_OVER"&&game.result?<section className="end-card"><span className="eyebrow">The ninth brew is complete</span><h2>{winner}</h2><p><b>{game.result.scores.human}</b> points to <b>{game.result.scores.ai}</b>. Final pot distances: {game.result.tieBreakIndices.human} and {game.result.tieBreakIndices.ai}.</p><div><button className="button-primary" onClick={()=>{setSeedInput(freshSeed());setScreen("home")}}>Brew another game</button><button className="button-secondary" onClick={exportReplay}>Save replay</button></div></section>:<><div className="game-workspace">
+        <section className="brew-stage human-board panel-frame"><div className="stage-heading"><div><span className="eyebrow">Your workbench</span><h1>The cauldron is yours</h1></div><div className="permanent-resources"><Resource icon="vp" label="Score" value={game.players.human.score}/><Resource icon="ruby" label="Rubies" value={game.players.human.rubies}/></div></div><div className="pot-focus"><BrewingStatus game={game} risk={risk} showRisk={settings.showRisk}/><PotBoard player={game.players.human} tokens={game.tokens} onInspect={setInspected}/></div>{settings.showBag&&bagOpen&&<BagLedger player={game.players.human} tokens={game.tokens}/>} {game.pendingDecision?.actor==="human"&&!['BREW_ACTION','ROUND9_COMMIT','PURCHASE'].includes(game.pendingDecision.kind)?<DecisionPanel pending={game.pendingDecision} game={game} onChoose={resolveChoice}/>:null}</section>
+        <AIBoard game={game} aiStatus={aiStatus} aiReport={aiReport} showDetails={settings.showAIDetails} onInspect={setInspected}/></div>
+      </>}
+      <div className="lower-dashboard"><Market game={game} onChoose={resolveChoice}/><GameLog game={game}/></div>
+      {game.phase!=="GAME_OVER"&&<ControlShelf game={game} bagOpen={bagOpen} bagEnabled={settings.showBag} onBag={()=>setBagOpen(value=>!value)} onChoose={resolveChoice} aiStatus={aiStatus}/>} {/* primary controls */}
+    </main>{helpOpen&&<HelpModal onClose={()=>setHelpOpen(false)}/>} {settingsOpen&&<Modal title="Game settings" eyebrow="Display and pace" onClose={()=>setSettingsOpen(false)}><SettingsPanel settings={settings} onChange={setSettings}/></Modal>} {roundSummary&&<RoundSummary summary={roundSummary} onContinue={()=>setRoundSummary(undefined)}/>} {inspected&&<InspectCard token={inspected} onClose={()=>setInspected(undefined)}/>} {toast&&<FeedbackToast toast={toast} onClose={()=>setToast(undefined)}/>} {dieEvent&&<BonusDieEvent entry={dieEvent} onClose={()=>setDismissedDie(dieEvent.seq)}/>}<footer><span>Deterministic live-bag engine / Monte Carlo AI</span><span>Seed {game.config.seed} / revision {game.revision}</span></footer></div>;
 }

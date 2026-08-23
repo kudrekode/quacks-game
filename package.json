@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.app.json --noEmit",
     "test": "vitest run",
     "test:run": "vitest run",
+    "visual:qa": "playwright test -c playwright.config.ts",
     "simulate": "tsx src/simulate.ts",
     "benchmark:ai": "tsx src/benchmark.ts"
   },
@@ -17,9 +18,10 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.10.2",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^7.1.3",

@@ -3,3 +3,4 @@ dist/
 coverage/
 tmp/
 *.log
+tests/visual/results/

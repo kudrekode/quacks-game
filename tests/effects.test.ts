@@ -36,6 +36,35 @@ describe("set-one placement effects", () => {
     expect(state.players[actor].bag).toHaveLength(1);
   });
 
+  it("makes a reprieved token eligible for the very next live-bag draw", () => {
+    let state=createGame({seed:"reprieve-redraw",fortuneDeck:deckWith("F19")});
+    const actor=state.pendingDecision!.actor;forceOnly(state,actor,"white",3);
+    const returnedId=state.players[actor].bag[0]!;
+    const beforeFirstDraw=state.rng.drawsConsumed;
+    state=choose(state,"DRAW");
+    expect(state.rng.drawsConsumed).toBe(beforeFirstDraw+1);
+    state=choose(state,"return");
+    expect(state.rng.drawsConsumed).toBe(beforeFirstDraw+1);
+    expect(state.players[actor].bag).toContain(returnedId);
+    while(state.pendingDecision?.actor!==actor)state=choose(state,"STOP");
+    state=choose(state,"DRAW");
+    expect(state.players[actor].pot.some((placed)=>placed.tokenId===returnedId)).toBe(true);
+    expect(state.players[actor].bag).not.toContain(returnedId);
+  });
+
+  it("draws from bag contents as modified before the command", () => {
+    let orange=createGame({seed:"live-pool",fortuneDeck:deckWith("F02")});
+    let green=createGame({seed:"live-pool",fortuneDeck:deckWith("F02")});
+    const actor=orange.pendingDecision!.actor;
+    forceOnly(orange,actor,"orange",1);
+    forceOnly(green,actor,"green",1);
+    orange=choose(orange,"DRAW");
+    green=choose(green,"DRAW");
+    expect(orange.tokens[orange.players[actor].pot[0]!.tokenId]?.color).toBe("orange");
+    expect(green.tokens[green.players[actor].pot[0]!.tokenId]?.color).toBe("green");
+    expect(orange.rng.drawsConsumed).toBe(green.rng.drawsConsumed);
+  });
+
   it("explodes only when white total exceeds seven", () => {
     let state=createGame({seed:"threshold",fortuneDeck:deckWith("F02")});
     const actor=state.pendingDecision!.actor;

@@ -46,10 +46,30 @@ describe("game setup and command boundary", () => {
     const human = observe(state,"human");
     const ai = observe(state,"ai");
     expect("fortuneDeck" in human).toBe(false);
+    expect("rng" in human).toBe(false);
     expect(human.players.ai.preview).toBeUndefined();
     expect(ai.players.human.preview).toBeUndefined();
     expect(human.pendingDecision?.actor).toBe("human");
     expect(ai.pendingDecision).toBeUndefined();
+  });
+
+  it("rolls the bonus die in evaluation A and excludes exploded pots", () => {
+    let state=createGame({seed:"die-timing",fortuneDeck:deckWith("F02")});
+    state=dispatch(state,{type:"RESOLVE_DECISION",decisionId:state.pendingDecision!.id,choice:"STOP"});
+    const human=state.players.human;
+    const whiteIds=[
+      human.bag.find((id)=>state.tokens[id]?.color==="white"&&state.tokens[id]?.value===3)!,
+      ...state.supply.filter((id)=>state.tokens[id]?.color==="white"&&state.tokens[id]?.value===3).slice(0,1),
+      human.bag.find((id)=>state.tokens[id]?.color==="white"&&state.tokens[id]?.value===2)!,
+    ];
+    for(const id of whiteIds){const bagIndex=human.bag.indexOf(id);if(bagIndex>=0)human.bag.splice(bagIndex,1);const supplyIndex=state.supply.indexOf(id);if(supplyIndex>=0)state.supply.splice(supplyIndex,1);}
+    human.pot=whiteIds.map((tokenId,index)=>({tokenId,trackIndex:[3,6,8][index]!,ordinal:index,baseMovement:state.tokens[tokenId]!.value,effectiveMovement:state.tokens[tokenId]!.value,source:"draw" as const}));
+    human.placementOrder=[...whiteIds];human.placementEvents=3;human.whiteTotal=8;human.exploded=true;human.stopped=true;
+    state=dispatch(state,{type:"RESOLVE_DECISION",decisionId:state.pendingDecision!.id,choice:"STOP"});
+    const rolls=state.log.filter((entry)=>entry.type==="DIE_ROLLED");
+    expect(rolls.length).toBeGreaterThan(0);
+    expect(rolls.every((entry)=>entry.phase==="EVAL_A")).toBe(true);
+    expect(rolls.every((entry)=>entry.actor==="ai")).toBe(true);
   });
 });
 
