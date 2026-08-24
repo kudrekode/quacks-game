@@ -1,5 +1,3 @@
-import type { IngredientColor, TokenValue } from "./types.js";
-
 const PACK_1 = "/assets/ui-pack1-svg";
 const BOARD = "/assets/main-game-board-svg";
 
@@ -28,19 +26,3 @@ export const BOARD_ASSET = {
   finishMarker: `${BOARD}/track/finish-crossed-spoons.svg`,
   cart: `${BOARD}/market/shopping-cart.svg`,
 } as const;
-
-const INGREDIENT_ART: Record<IngredientColor, string> = {
-  white: "cherry-bomb",
-  orange: "sunblossom",
-  green: "verdant-leaf",
-  blue: "aqua-droplet",
-  red: "firecap",
-  yellow: "sunblossom",
-  purple: "nightshade",
-  black: "nightshade",
-};
-
-export function ingredientAsset(color: IngredientColor, value: TokenValue): string {
-  const artTier = value === 4 ? 3 : value;
-  return `${PACK_1}/ingredients/${INGREDIENT_ART[color]}-${artTier}.svg`;
-}

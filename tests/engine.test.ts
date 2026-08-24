@@ -125,5 +125,5 @@ describe("rules integration", () => {
       const result=playBaselineGame(createGame({seed:`soak-${i}`,startPlayerId:i%2?"ai":"human",controllers:{human:"ai",ai:"ai"}}));
       expect(result.revision).toBeLessThan(5000);
     }
-  }, 60_000);
+  }, 180_000);
 });

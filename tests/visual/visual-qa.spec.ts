@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const screenshotDir = resolve("tests/visual/screenshots");
-const states = ["home", "empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "fortune-back", "fortune-mid-flip", "fortune-revealed", "fortune-reminder", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"] as const;
+const states = ["home", "empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "fortune-back", "fortune-mid-flip", "fortune-revealed", "fortune-reminder", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned", "asset-orange-human", "asset-orange-ai", "asset-blue-modal", "asset-green-modal", "asset-purple-tooltip", "asset-gallery"] as const;
 const playerBrewingStates = new Set(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-stopped", "round9"]);
 
 test.beforeAll(async () => mkdir(screenshotDir, { recursive: true }));
@@ -64,6 +64,15 @@ for (const state of states) {
       expect(box !== null && viewport !== null && box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height).toBe(true);
     }
     if (state === "effect-returned") await expect(page.getByText("Cherry bomb 1 is back in your live bag.")).toBeVisible();
+    if (state === "asset-orange-human") await expect(page.locator('.human-board [data-ingredient-token][data-ingredient-color="orange"][data-ingredient-context="board"]')).toHaveAttribute("data-asset-status", "loaded");
+    if (state === "asset-orange-ai") await expect(page.locator('.ai-board [data-ingredient-token][data-ingredient-color="orange"][data-ingredient-context="ai-board"]')).toHaveAttribute("data-asset-status", "loaded");
+    if (state === "asset-blue-modal") await expect(page.locator('.effect-choice-modal [data-ingredient-token][data-ingredient-color="blue"]')).toHaveCount(3);
+    if (state === "asset-green-modal") await expect(page.locator('.effect-choice-modal [data-ingredient-token][data-ingredient-color="green"]')).toHaveCount(3);
+    if (state === "asset-purple-tooltip") await expect(page.locator('.inspect-popover [data-ingredient-token][data-ingredient-color="purple"]')).toHaveAttribute("data-asset-status", "loaded");
+    if (state === "asset-gallery") {
+      await expect(page.locator("[data-ingredient-token]" )).toHaveCount(108);
+      await expect(page.locator('[data-ingredient-token][data-asset-status="failed"]')).toHaveCount(0);
+    }
     expect(browserErrors).toEqual([]);
     const resolutionCapture = state.startsWith("resolution-") || state === "purchasing" || state === "round-summary";
     await page.screenshot({ path: resolve(screenshotDir, `${state}.png`), fullPage: !resolutionCapture });
@@ -302,4 +311,47 @@ test("reduced motion still blocks on a dedicated Fortune reveal", async ({ page 
   await expect(reveal).toBeVisible();
   await expect(page.getByRole("button", { name: "Draw ingredient" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Continue to brewing" })).toBeVisible({ timeout: 750 });
+});
+
+test("every gallery ingredient loads and has non-zero dimensions", async ({ page }) => {
+  await page.goto("/?debugState=asset-gallery", { waitUntil: "domcontentloaded" });
+  const tokens = page.locator("[data-ingredient-token]");
+  await expect(tokens).toHaveCount(108);
+  await expect(page.locator('[data-ingredient-token][data-asset-status="loaded"]')).toHaveCount(108);
+  const metrics = await tokens.evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect();
+    const image = element.querySelector("img");
+    const svgImage = element.querySelector("image");
+    return {
+      width: box.width,
+      height: box.height,
+      imageLoaded: image instanceof HTMLImageElement ? image.complete && image.naturalWidth > 0 && image.naturalHeight > 0 : true,
+      svgImageVisible: svgImage instanceof SVGGraphicsElement ? svgImage.getBBox().width > 0 && svgImage.getBBox().height > 0 : true,
+    };
+  }));
+  expect(metrics.every(metric => metric.width > 0 && metric.height > 0 && metric.imageLoaded && metric.svgImageVisible)).toBe(true);
+});
+
+test("ingredient load failure shows a readable development fallback", async ({ page }) => {
+  await page.route("**/aqua-droplet-2.svg", route => route.abort());
+  await page.goto("/?debugState=asset-gallery", { waitUntil: "domcontentloaded" });
+  const blueTwo = page.locator('[data-gallery-token="blue:2"]');
+  await expect(blueTwo.locator('[data-asset-status="failed"]')).toHaveCount(6);
+  await expect(blueTwo.getByText("[ BLUE 2 ]").first()).toBeVisible();
+});
+
+test("modal ingredient remains visible through focus, hover, and selection", async ({ page }) => {
+  await page.goto("/?debugState=asset-blue-modal", { waitUntil: "domcontentloaded" });
+  const option = page.getByRole("radio").nth(1);
+  const token = option.locator('[data-ingredient-token][data-ingredient-color="blue"]');
+  await expect(token).toHaveAttribute("data-asset-status", "loaded");
+  const before = await token.boundingBox();
+  await option.hover();
+  await option.focus();
+  await option.click();
+  await expect(option).toHaveAttribute("aria-checked", "true");
+  await expect(token).toBeVisible();
+  await expect(token).toHaveAttribute("data-asset-status", "loaded");
+  const after = await token.boundingBox();
+  expect(before && after && before.width > 0 && before.height > 0 && after.width > 0 && after.height > 0).toBe(true);
 });

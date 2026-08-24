@@ -2,7 +2,7 @@ import React from "react";
 import { POT_TRACK } from "./content.js";
 import type { PlacedToken, Token } from "./types.js";
 import { INGREDIENT_META } from "./uiData.js";
-import { ingredientAsset } from "./uiAssets.js";
+import { IngredientToken } from "./IngredientToken.js";
 
 type TrackSpace = (typeof POT_TRACK)[number];
 
@@ -134,10 +134,7 @@ export function HumanPotBoard({
           if (!token) return null;
           return <g key={placement.tokenId} className="human-placed-chip" transform={`translate(${point.x + offset * 5} ${point.y - offset * 5})`} filter="url(#human-token-shadow)" tabIndex={0} role="button" onClick={() => onInspect?.(token)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") onInspect?.(token); }} aria-label={`Inspect ${INGREDIENT_META[token.color].name} ${token.value}`}>
             <title>{`${INGREDIENT_META[token.color].name.toUpperCase()} ${token.value}\nPlaced at space ${placement.trackIndex}. Effective movement ${placement.effectiveMovement}.`}</title>
-            <circle r="21" className="human-token-backplate"/>
-            <image href={ingredientAsset(token.color, token.value)} x="-27" y="-29" width="54" height="54" className={`human-token-art ingredient-art-${token.color}`}/>
-            <circle cy="19" r="8" className="svg-chip-value-disc"/>
-            <text y="22" className="svg-chip-value">{token.value}</text>
+            <IngredientToken color={token.color} value={token.value} context={variant === "ai" ? "ai-board" : "board"} decorative/>
           </g>;
         });
       })}

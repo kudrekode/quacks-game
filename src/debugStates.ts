@@ -1,9 +1,9 @@
 import { createGame } from "./engine.js";
 import type { GameLogEntry, GameState, IngredientColor, PendingDecision, PlacedToken, TokenValue } from "./types.js";
 
-export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "fortune-back" | "fortune-mid-flip" | "fortune-revealed" | "fortune-reminder" | "tooltip" | "toast" | "round9" | "round-summary" | "resolution-bonus" | "resolution-rewards" | "resolution-purchase" | "resolution-purchase-selected" | "resolution-ruby" | "resolution-complete" | "effect-crow-skull" | "effect-mandrake" | "effect-keep-return" | "effect-multi-reveal" | "effect-disabled" | "effect-selected" | "effect-confirmation" | "effect-returned";
+export type DebugStateName = "empty-pot" | "brewing" | "ingredients" | "mid-track" | "high-risk" | "dense-pot" | "ai-brewing" | "ai-stopped" | "purchasing" | "fortune" | "fortune-back" | "fortune-mid-flip" | "fortune-revealed" | "fortune-reminder" | "tooltip" | "toast" | "round9" | "round-summary" | "resolution-bonus" | "resolution-rewards" | "resolution-purchase" | "resolution-purchase-selected" | "resolution-ruby" | "resolution-complete" | "effect-crow-skull" | "effect-mandrake" | "effect-keep-return" | "effect-multi-reveal" | "effect-disabled" | "effect-selected" | "effect-confirmation" | "effect-returned" | "asset-gallery" | "asset-orange-human" | "asset-orange-ai" | "asset-blue-modal" | "asset-green-modal" | "asset-purple-tooltip";
 
-const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "fortune-back", "fortune-mid-flip", "fortune-revealed", "fortune-reminder", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned"]);
+const validStates = new Set<DebugStateName>(["empty-pot", "brewing", "ingredients", "mid-track", "high-risk", "dense-pot", "ai-brewing", "ai-stopped", "purchasing", "fortune", "fortune-back", "fortune-mid-flip", "fortune-revealed", "fortune-reminder", "tooltip", "toast", "round9", "round-summary", "resolution-bonus", "resolution-rewards", "resolution-purchase", "resolution-purchase-selected", "resolution-ruby", "resolution-complete", "effect-crow-skull", "effect-mandrake", "effect-keep-return", "effect-multi-reveal", "effect-disabled", "effect-selected", "effect-confirmation", "effect-returned", "asset-gallery", "asset-orange-human", "asset-orange-ai", "asset-blue-modal", "asset-green-modal", "asset-purple-tooltip"]);
 
 export function debugStateFromLocation(): DebugStateName | "home" | undefined {
   if (!(import.meta as { env?: { DEV?: boolean } }).env?.DEV) return undefined;
@@ -103,6 +103,9 @@ export function createDebugGame(name: DebugStateName, roundOverride?: number): G
     state.players.human.bag.push(...dangerBag);
   }
   if (name === "dense-pot") fillPot(state, "human", [["orange", 1], ["green", 1], ["blue", 1], ["red", 1], ["yellow", 1], ["purple", 1], ["black", 1], ["white", 1], ["green", 2], ["blue", 2], ["red", 2], ["yellow", 2], ["white", 2], ["green", 4], ["blue", 4], ["red", 4], ["yellow", 4], ["green", 4]]);
+  if (name === "asset-orange-human") { fillPot(state,"human",[["orange",1]]); fillPot(state,"ai",[]); }
+  if (name === "asset-orange-ai") { fillPot(state,"human",[]); fillPot(state,"ai",[["orange",1]]); }
+  if (name === "asset-purple-tooltip") fillPot(state,"human",[["purple",1]]);
   if (name === "ai-brewing") state.pendingDecision = pending("ai", "BREW_ACTION", ["DRAW", "STOP"]);
   if (name === "ai-stopped") {
     state.players.ai.stopped = true;
@@ -163,6 +166,12 @@ export function createDebugGame(name: DebugStateName, roundOverride?: number): G
     state.players.human.preview = preview;
     const data = name === "effect-selected" ? { presentationSelectedChoice:`token:${preview[1]}` } : {};
     state.pendingDecision = pending("human","BLUE_SELECT",["none",...preview.map(id=>`token:${id}`)],data,"Choose up to one previewed token");
+  }
+  if (name === "asset-blue-modal" || name === "asset-green-modal") {
+    const color = name === "asset-blue-modal" ? "blue" : "green";
+    const preview = ([1,2,4] as TokenValue[]).map(value=>take(state,color,value));
+    state.players.human.preview=preview;
+    state.pendingDecision=pending("human","BLUE_SELECT",preview.map(id=>`token:${id}`),{},name === "asset-blue-modal" ? "Crow Skull revealed every legal blue value" : "Choose a revealed green ingredient");
   }
   if (name === "effect-mandrake" || name === "effect-confirmation") {
     fillPot(state,"human",[["white",2],["yellow",1]]);

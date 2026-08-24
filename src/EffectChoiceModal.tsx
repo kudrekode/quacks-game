@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { EffectChoiceModel } from "./effectChoices.js";
 import { GameIcon } from "./GameIcon.js";
-import { ingredientAsset } from "./uiAssets.js";
+import { IngredientToken } from "./IngredientToken.js";
 
 interface EffectChoiceModalProps {
   decisionId: string;
@@ -50,7 +50,7 @@ export function EffectChoiceModal({decisionId,model,reducedMotion,onConfirm,onCa
       <div className="effect-choice-list" role="radiogroup" aria-label="Legal choices" onKeyDown={navigate}>{model.choices.map((choice,index)=>{
         const isSelected=choice.id===selectedChoice;const unselectedReturning=resolving&&model.type==="TOKEN_CHOICE"&&Boolean(choice.token)&&!isSelected;
         return <button key={choice.id} ref={node=>{if(node)choiceRefs.current.set(choice.id,node);else choiceRefs.current.delete(choice.id)}} type="button" role="radio" aria-checked={isSelected} disabled={Boolean(choice.disabledReason)||resolving} className={`effect-choice-option${choice.token?" has-token":""}${isSelected?" is-selected":""}${choice.disabledReason?" is-illegal":""}${resolving&&isSelected?" is-confirming":""}${(resolving&&isSelected&&choice.returnsToBag)||unselectedReturning?" is-returning":""}${resolving&&isSelected&&choice.movesToBoard?" is-placing":""}`} style={{"--choice-order":index} as CSSProperties} onClick={()=>choose(choice.id)}>
-          {choice.token&&<span className="effect-token"><img src={ingredientAsset(choice.token.color,choice.token.value)} alt=""/><b>{choice.token.value}</b></span>}
+          {choice.token&&<IngredientToken color={choice.token.color} value={choice.token.value} context="modal" className="effect-token" decorative/>}
           <span className="effect-choice-copy"><b>{choice.label}</b><small>{choice.disabledReason??choice.description}</small></span>
           <i aria-hidden="true">{choice.disabledReason?"Unavailable":isSelected?"Selected":"Choose"}</i>
         </button>})}</div>
